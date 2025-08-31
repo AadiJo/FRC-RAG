@@ -26,6 +26,52 @@ MAX_ASPECT_RATIO = 20  # Filter out extremely wide/tall images
 MIN_OCR_CHARS = 3  # Minimum OCR characters to consider image useful
 MIN_FILE_SIZE = 1000  # Minimum file size in bytes
 
+# Enhanced filtering settings for relevant technical content
+IRRELEVANT_KEYWORDS = [
+    # Social/meme content
+    'meme', 'funny', 'lol', 'lmao', 'joke', 'humor', 'reaction', 'face', 'emoji',
+    'twitter', 'instagram', 'social media', 'facebook', 'tiktok', 'snapchat',
+    
+    # Game reveal/watching content
+    'game reveal', 'watching', 'stream', 'livestream', 'audience', 'watching party',
+    'reveal reaction', 'first look', 'initial reaction', 'team watching',
+    
+    # Non-technical team content
+    'team photo', 'group photo', 'team picture', 'awards ceremony', 'celebration',
+    'banner', 'poster', 'logo only', 'team logo', 'sponsor logo', 'title page',
+    'cover page', 'intro page', 'welcome', 'introduction', 'about us',
+    
+    # Generic/decorative content
+    'decorative', 'background', 'pattern', 'texture', 'gradient', 'abstract',
+    'clip art', 'stock photo', 'generic image', 'filler image'
+]
+
+TECHNICAL_KEYWORDS = [
+    # Robot components and mechanisms
+    'robot', 'mechanism', 'drivetrain', 'chassis', 'frame', 'gearbox', 'motor',
+    'actuator', 'pneumatic', 'hydraulic', 'sensor', 'encoder', 'gyro', 'accelerometer',
+    'intake', 'shooter', 'climber', 'elevator', 'arm', 'gripper', 'manipulator',
+    
+    # CAD and design
+    'cad', 'solidworks', 'inventor', 'fusion', 'onshape', 'design', 'model',
+    '3d model', 'assembly', 'part', 'drawing', 'blueprint', 'schematic',
+    'dimensions', 'tolerances', 'material', 'aluminum', 'steel', 'plastic',
+    
+    # Programming and electronics
+    'code', 'programming', 'software', 'algorithm', 'autonomous', 'teleop',
+    'wiring', 'circuit', 'pcb', 'rio', 'roborio', 'can bus', 'pwm',
+    'electronics', 'voltage', 'current', 'power distribution',
+    
+    # Build and manufacturing
+    'machining', 'fabrication', 'welding', 'cutting', 'drilling', 'milling',
+    'lathe', 'cnc', 'tools', 'workshop', 'build process', 'assembly process',
+    'prototype', 'iteration', 'testing', 'troubleshooting',
+    
+    # Game elements and strategy
+    'field', 'game piece', 'scoring', 'strategy', 'alliance', 'match',
+    'autonomous period', 'endgame', 'points', 'ranking'
+]
+
 def main():
     print("Starting database creation...")
     
@@ -110,8 +156,11 @@ def process_pdf_with_images(pdf_path: str, pdf_images_path: str) -> List[Documen
         page_text = page.get_text()
         
         if page_text.strip():  # Only process pages with text
+            # Analyze page context for better image filtering
+            page_context = analyze_page_context(page_text, page_num)
+            
             # Extract images from this page
-            image_info = extract_images_from_page(page, page_num, pdf_images_path)
+            image_info = extract_images_from_page(page, page_num, pdf_images_path, page_context)
             
             # Create document with text and image references
             metadata = {
@@ -180,7 +229,57 @@ def process_pdf_with_images(pdf_path: str, pdf_images_path: str) -> List[Documen
     print(f"Extracted content from {total_pages} pages, created {len(documents)} documents")
     return documents
 
-def extract_images_from_page(page, page_num: int, pdf_images_path: str) -> List[Dict[str, Any]]:
+def analyze_page_context(page_text: str, page_num: int) -> Dict[str, Any]:
+    """
+    Analyze the text content of a page to provide context for image filtering
+    """
+    text_lower = page_text.lower()
+    
+    context = {
+        'is_intro_page': False,
+        'is_team_page': False,
+        'is_technical_page': False,
+        'is_social_page': False,
+        'technical_score': 0,
+        'social_score': 0
+    }
+    
+    # Detect intro/welcome pages
+    intro_indicators = ['welcome', 'introduction', 'about us', 'team overview', 
+                       'mission statement', 'who we are', 'our story']
+    intro_score = sum(1 for indicator in intro_indicators if indicator in text_lower)
+    if intro_score >= 2 or (page_num <= 3 and intro_score >= 1):
+        context['is_intro_page'] = True
+    
+    # Detect team/social pages
+    team_indicators = ['team members', 'our team', 'meet the team', 'student list',
+                      'mentors', 'coaches', 'sponsors', 'thank you', 'acknowledgments',
+                      'awards', 'recognition', 'competition results']
+    team_score = sum(1 for indicator in team_indicators if indicator in text_lower)
+    if team_score >= 2:
+        context['is_team_page'] = True
+    
+    # Detect social/fun content
+    social_indicators = ['game reveal', 'watching', 'stream', 'party', 'fun',
+                        'meme', 'joke', 'funny', 'reaction', 'social media']
+    social_score = sum(1 for indicator in social_indicators if indicator in text_lower)
+    context['social_score'] = social_score
+    if social_score >= 2:
+        context['is_social_page'] = True
+    
+    # Detect technical content
+    technical_indicators = ['design', 'build', 'programming', 'software', 'hardware',
+                           'mechanism', 'robot', 'autonomous', 'control system',
+                           'sensors', 'actuators', 'drivetrain', 'cad', 'fabrication',
+                           'testing', 'troubleshooting', 'strategy', 'game analysis']
+    technical_score = sum(1 for indicator in technical_indicators if indicator in text_lower)
+    context['technical_score'] = technical_score
+    if technical_score >= 3:
+        context['is_technical_page'] = True
+    
+    return context
+
+def extract_images_from_page(page, page_num: int, pdf_images_path: str, page_context: Dict[str, Any] = None) -> List[Dict[str, Any]]:
     """
     Extract images from a specific PDF page with filtering
     """
@@ -232,6 +331,13 @@ def extract_images_from_page(page, page_num: int, pdf_images_path: str) -> List[
                     pix = None
                     continue
                 
+                # Enhanced content filtering for technical relevance
+                if not is_technically_relevant(ocr_text, pil_image, page_num, page_context):
+                    print(f"Filtered out image: {filename} (not technically relevant)")
+                    os.remove(file_path)
+                    pix = None
+                    continue
+                
                 # Create image info
                 img_info = {
                     "filename": filename,
@@ -272,6 +378,7 @@ def is_useful_image(pil_image: Image.Image) -> bool:
 def has_meaningful_content(pil_image: Image.Image) -> bool:
     """
     Check if image has meaningful visual content beyond simple shapes/logos
+    Enhanced to better detect technical diagrams and mechanical drawings
     """
     import numpy as np
     
@@ -287,12 +394,209 @@ def has_meaningful_content(pil_image: Image.Image) -> bool:
     edge_magnitude = np.sqrt(grad_x**2 + grad_y**2)
     edge_density = np.mean(edge_magnitude > 10)  # Threshold for edge detection
     
-    # Consider image meaningful if it has sufficient variance and edge content
-    # These thresholds may need adjustment based on your specific images
-    min_variance = 100  # Minimum pixel variance
-    min_edge_density = 0.02  # Minimum proportion of edge pixels
+    # Enhanced analysis for technical content
     
-    return variance > min_variance or edge_density > min_edge_density
+    # 1. Detect line-based content (technical drawings often have many straight lines)
+    # Simple line detection using Hough-like approach
+    height, width = img_array.shape
+    line_score = 0
+    
+    # Check for horizontal and vertical line patterns
+    for row in img_array[::5]:  # Sample every 5th row
+        consecutive_pixels = 0
+        for pixel in row:
+            if pixel < 128:  # Dark pixels (assuming lines are dark)
+                consecutive_pixels += 1
+            else:
+                if consecutive_pixels > width * 0.1:  # Line spans >10% of width
+                    line_score += 1
+                consecutive_pixels = 0
+    
+    for col_idx in range(0, width, 5):  # Sample every 5th column
+        col = img_array[:, col_idx]
+        consecutive_pixels = 0
+        for pixel in col:
+            if pixel < 128:
+                consecutive_pixels += 1
+            else:
+                if consecutive_pixels > height * 0.1:  # Line spans >10% of height
+                    line_score += 1
+                consecutive_pixels = 0
+    
+    # 2. Detect geometric shapes (circles, rectangles) common in technical drawings
+    shape_score = 0
+    
+    # Simple circle detection - look for curved edges
+    kernel_size = min(20, min(height, width) // 10)
+    if kernel_size > 5:
+        # Check for circular patterns by looking at pixel intensity around centers
+        center_y, center_x = height // 2, width // 2
+        for radius in range(kernel_size, min(height, width) // 4, kernel_size):
+            if radius < min(height, width) // 2:
+                circle_pixels = []
+                for angle in np.linspace(0, 2*np.pi, 16):
+                    y = int(center_y + radius * np.sin(angle))
+                    x = int(center_x + radius * np.cos(angle))
+                    if 0 <= y < height and 0 <= x < width:
+                        circle_pixels.append(img_array[y, x])
+                
+                if len(circle_pixels) > 8:
+                    circle_variance = np.var(circle_pixels)
+                    if circle_variance > 500:  # High variance suggests edge
+                        shape_score += 1
+    
+    # 3. Text density analysis (technical drawings often have annotations)
+    # Look for text-like patterns (small clustered dark regions)
+    text_score = 0
+    block_size = max(5, min(height, width) // 50)
+    for y in range(0, height - block_size, block_size):
+        for x in range(0, width - block_size, block_size):
+            block = img_array[y:y+block_size, x:x+block_size]
+            if np.mean(block) < 200 and np.var(block) > 100:  # Dark area with variation
+                text_score += 1
+    
+    # Enhanced decision criteria
+    min_variance = 100
+    min_edge_density = 0.02
+    min_line_score = 3
+    min_shape_score = 1
+    min_text_score = 5
+    
+    # Technical drawing indicators
+    is_technical = (line_score >= min_line_score or 
+                   shape_score >= min_shape_score or
+                   text_score >= min_text_score)
+    
+    # Basic content indicators
+    has_basic_content = (variance > min_variance or edge_density > min_edge_density)
+    
+    return has_basic_content or is_technical
+
+def is_technically_relevant(ocr_text: str, pil_image: Image.Image, page_num: int, page_context: Dict[str, Any] = None) -> bool:
+    """
+    Enhanced filtering to determine if an image is technically relevant to robotics
+    """
+    # Convert OCR text to lowercase for case-insensitive matching
+    ocr_lower = ocr_text.lower()
+    
+    # Initialize context if not provided
+    if page_context is None:
+        page_context = {'is_intro_page': False, 'is_team_page': False, 
+                       'is_technical_page': False, 'is_social_page': False,
+                       'technical_score': 0, 'social_score': 0}
+    
+    # Strong filters based on page context
+    if page_context.get('is_social_page', False):
+        return False  # Exclude all images from social/fun pages
+    
+    if page_context.get('is_intro_page', False) and page_num <= 5:
+        # Be very strict on intro pages
+        technical_in_image = any(keyword in ocr_lower for keyword in TECHNICAL_KEYWORDS[:10])  # Top technical keywords
+        if not technical_in_image:
+            return False
+    
+    if page_context.get('is_team_page', False):
+        # Only include if image has clear technical content
+        technical_in_image = any(keyword in ocr_lower for keyword in TECHNICAL_KEYWORDS[:15])
+        if not technical_in_image:
+            return False
+    
+    # Check for irrelevant keywords that suggest non-technical content
+    irrelevant_score = 0
+    for keyword in IRRELEVANT_KEYWORDS:
+        if keyword in ocr_lower:
+            irrelevant_score += 1
+    
+    # Check for technical keywords that suggest relevant content
+    technical_score = 0
+    for keyword in TECHNICAL_KEYWORDS:
+        if keyword in ocr_lower:
+            technical_score += 1
+    
+    # Additional heuristics based on content patterns
+    
+    # 1. Filter out images with excessive social media language
+    social_indicators = ['@', '#hashtag', 'follow us', 'like and subscribe', 
+                        'social media', 'post', 'share', 'comment']
+    for indicator in social_indicators:
+        if indicator in ocr_lower:
+            irrelevant_score += 2
+    
+    # 2. Filter out images that are primarily text with non-technical content
+    if len(ocr_text) > 50:  # Substantial text content
+        # Check if it's mostly non-technical text
+        words = ocr_lower.split()
+        non_technical_words = ['welcome', 'introduction', 'about', 'team', 'members',
+                              'sponsors', 'thank', 'thanks', 'acknowledgment', 'fun',
+                              'joke', 'meme', 'funny', 'laugh', 'smile']
+        non_tech_count = sum(1 for word in words if word in non_technical_words)
+        if non_tech_count > len(words) * 0.3:  # More than 30% non-technical words
+            irrelevant_score += 3
+    
+    # 3. Filter based on image characteristics for likely memes/social content
+    width, height = pil_image.size
+    
+    # Very wide images often contain memes or banners
+    if width / height > 3:
+        irrelevant_score += 1
+    
+    # Square images with minimal text often are logos or memes
+    if abs(width - height) < min(width, height) * 0.1 and len(ocr_text) < 20:
+        irrelevant_score += 1
+    
+    # 4. Page-based filtering - first few pages often contain intro/team content
+    if page_num <= 3:  # First 3 pages
+        intro_keywords = ['welcome', 'introduction', 'about', 'overview', 'team']
+        for keyword in intro_keywords:
+            if keyword in ocr_lower:
+                irrelevant_score += 2
+    
+    # 5. Filter images with primarily names/titles (often team photos or credits)
+    if len(ocr_text) > 20:
+        # Look for patterns like "John Smith", "Team Captain", etc.
+        import re
+        name_patterns = [
+            r'\b[A-Z][a-z]+ [A-Z][a-z]+\b',  # First Last name pattern
+            r'\bcaptain\b', r'\bmentor\b', r'\bcoach\b', r'\bstudent\b',
+            r'\bpresident\b', r'\bvice\b', r'\bdirector\b'
+        ]
+        name_matches = sum(len(re.findall(pattern, ocr_text, re.IGNORECASE)) 
+                          for pattern in name_patterns)
+        if name_matches > 3:  # Multiple name/title patterns
+            irrelevant_score += 2
+    
+    # 6. Boost score for technical diagrams and CAD images
+    technical_visual_indicators = ['dimension', 'measurement', 'scale', 'view',
+                                  'section', 'detail', 'assembly', 'part']
+    for indicator in technical_visual_indicators:
+        if indicator in ocr_lower:
+            technical_score += 2
+    
+    # 7. Filter out images with excessive punctuation (often decorative)
+    if len(ocr_text) > 10:
+        punctuation_ratio = sum(1 for char in ocr_text if not char.isalnum() and not char.isspace()) / len(ocr_text)
+        if punctuation_ratio > 0.3:  # More than 30% punctuation
+            irrelevant_score += 1
+    
+    # Decision logic
+    # If technical score is high, likely relevant
+    if technical_score >= 3:
+        return True
+    
+    # If irrelevant score is high, likely not relevant
+    if irrelevant_score >= 3:
+        return False
+    
+    # For borderline cases, prefer inclusion if there's any technical content
+    if technical_score > 0 and irrelevant_score <= 1:
+        return True
+    
+    # If no clear technical content and some irrelevant indicators, exclude
+    if technical_score == 0 and irrelevant_score > 0:
+        return False
+    
+    # Default to inclusion if uncertain (better to have false positives than miss technical content)
+    return True
 
 def split_text(documents: List[Document]) -> List[Document]:
     """
