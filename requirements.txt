@@ -1,0 +1,49 @@
+# Core LangChain packages
+langchain==0.3.27
+langchain-community==0.3.29
+langchain-text-splitters>=0.3.0
+langchain-huggingface>=0.3.0
+
+# Vector database
+chromadb==0.5.0
+
+# Local LLM integration
+ollama>=0.1.0
+
+# Web scraping
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# Embeddings and ML models
+sentence-transformers>=2.0.0
+transformers>=4.0.0
+
+# PDF and Image Processing
+PyMuPDF>=1.23.0
+Pillow>=10.0.0
+pytesseract>=0.3.10
+numpy>=1.24.0
+
+# OCR dependencies (system level tesseract required)
+torch>=2.0.0
+
+# TensorFlow compatibility
+tf-keras>=2.19.0
+tensorflow>=2.19.0
+
+# NumPy compatibility (must be <2.0 for ChromaDB)
+numpy<2.0,>=1.26.0
+
+# Document processing
+unstructured==0.6.7
+tabulate==0.9.0
+pdf2image==1.16.3
+pymupdf>=1.23.0
+pillow>=10.0.0
+
+# Additional dependencies
+huggingface-hub>=0.33.0
+tokenizers>=0.19.0
+pydantic>=2.7.0
+typing-extensions>=4.7.0
