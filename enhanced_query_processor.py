@@ -1,6 +1,6 @@
 """
 Enhanced Query Processor - Integrates game piece mapping with RAG system
-This module processes user queries and modifies them with game piece context
+This module processes user queries and modify them with game piece context
 """
 
 import os
@@ -45,6 +45,7 @@ Instructions:
 4. If images are mentioned in the context, reference them in your answer
 5. Connect the technical information with practical implementation advice
 6. If the context doesn't provide complete information, use your FRC knowledge to fill gaps while clearly indicating what comes from the documents vs. general knowledge
+7. If a user defined a game piece, say how it might be similar to dealing with a known piece
 
 Answer:
 """
