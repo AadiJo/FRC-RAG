@@ -326,7 +326,7 @@
             const infoDiv = document.createElement('div');
             infoDiv.className = 'image-info';
             infoDiv.innerHTML = `
-                <div class="image-filename">${image.filename}</div>
+                <div class="image-filename">${getTeamDisplayName(image.web_path || image.file_path)}</div>
                 <div class="image-page">Page ${image.page || 'N/A'}</div>
             `;
             
@@ -345,7 +345,7 @@
         function openImageModal(image) {
             console.log('Opening modal for image:', image.filename);
             modalImage.src = `/images/${image.web_path}`;
-            modalTitle.textContent = image.filename;
+            modalTitle.textContent = getTeamDisplayName(image.web_path || image.file_path);
             modalDescription.innerHTML = `
                 <strong>Page:</strong> ${image.page || 'N/A'}<br>
                 <strong>Path:</strong> ${image.file_path}<br>
@@ -377,6 +377,25 @@
 
         function scrollToBottom() {
             chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function getTeamDisplayName(imagePath) {
+            // Extract team number from the file path
+            // Path format: "1323-2025/page0_img1.png" or "data/images/1323-2025/page0_img1.png"
+            const pathParts = imagePath.split('/');
+            
+            // Find the folder that contains team number (format: XXXX-YYYY)
+            for (let part of pathParts) {
+                // Match pattern like "1323-2025" (team number followed by year)
+                const match = part.match(/^(\d+)-(\d{4})$/);
+                if (match) {
+                    const teamNumber = match[1];
+                    return `FRC ${teamNumber}`;
+                }
+            }
+            
+            // Fallback to original filename if no team pattern found
+            return imagePath.split('/').pop();
         }
 
         // Initialize

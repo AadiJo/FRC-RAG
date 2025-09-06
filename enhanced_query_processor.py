@@ -46,6 +46,8 @@ Instructions:
 5. Connect the technical information with practical implementation advice
 6. If the context doesn't provide complete information, use your FRC knowledge to fill gaps while clearly indicating what comes from the documents vs. general knowledge
 7. If a user defined a game piece, say how it might be similar to dealing with a known piece
+8. When answering queries about designs, give pros and cons based on the context, along with steps to implement with CAD screenshots or build tips
+9. When referencing anything, make sure to attach the image if one is available
 
 Answer:
 """
