@@ -275,8 +275,8 @@ def process_pdf_with_images(pdf_path: str, pdf_images_path: str) -> List[Documen
             # Analyze page context for better image filtering
             page_context = analyze_page_context(page_text, page_num)
             
-            # Extract images from this page
-            image_info = extract_images_from_page(page, page_num, pdf_images_path, page_context)
+            # Extract images from this page, providing the full page text for context
+            image_info = extract_images_from_page(page, page_num, pdf_images_path, page_context, page_text)
             
             # Create document with text and image references
             metadata = {
@@ -398,7 +398,7 @@ def analyze_page_context(page_text: str, page_num: int) -> Dict[str, Any]:
     
     return context
 
-def extract_images_from_page(page, page_num: int, pdf_images_path: str, page_context: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+def extract_images_from_page(page, page_num: int, pdf_images_path: str, page_context: Dict[str, Any] = None, page_text: str = "") -> List[Dict[str, Any]]:
     """
     Extract images from a specific PDF page with filtering and parallel OCR
     """
@@ -458,9 +458,9 @@ def extract_images_from_page(page, page_num: int, pdf_images_path: str, page_con
         return []
     
     # Second pass: perform OCR in parallel and apply filters
-    return process_images_parallel(valid_images, page_context)
+    return process_images_parallel(valid_images, page_context, page_text)
 
-def process_single_image_ocr(image_data: Dict[str, Any], page_context: Dict[str, Any] = None) -> Dict[str, Any]:
+def process_single_image_ocr(image_data: Dict[str, Any], page_context: Dict[str, Any] = None, page_text: str = "") -> Dict[str, Any]:
     """
     Process a single image for OCR, with captioning fallback, and filtering.
     """
@@ -498,8 +498,8 @@ def process_single_image_ocr(image_data: Dict[str, Any], page_context: Dict[str,
             return None
         
         # Enhanced content filtering for technical relevance
-        if not is_technically_relevant(image_text, pil_image, page_num, page_context):
-            reason = f"Not technically relevant based on text: '{image_text[:50]}...'"
+        if not is_technically_relevant(image_text, page_text, pil_image, page_num, page_context):
+            reason = f"Not technically relevant based on combined text context."
             move_to_rejected(file_path, reason)
             return None
         
@@ -521,7 +521,7 @@ def process_single_image_ocr(image_data: Dict[str, Any], page_context: Dict[str,
         move_to_rejected(file_path, reason)
         return None
 
-def process_images_parallel(valid_images: List[Dict[str, Any]], page_context: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+def process_images_parallel(valid_images: List[Dict[str, Any]], page_context: Dict[str, Any] = None, page_text: str = "") -> List[Dict[str, Any]]:
     """
     Process multiple images in parallel for OCR and filtering
     """
@@ -529,7 +529,7 @@ def process_images_parallel(valid_images: List[Dict[str, Any]], page_context: Di
         # For single image or disabled parallel processing, process directly
         image_info = []
         for img_data in valid_images:
-            result = process_single_image_ocr(img_data, page_context)
+            result = process_single_image_ocr(img_data, page_context, page_text)
             if result:
                 image_info.append(result)
         return image_info
@@ -539,7 +539,7 @@ def process_images_parallel(valid_images: List[Dict[str, Any]], page_context: Di
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit OCR tasks
-        ocr_func = partial(process_single_image_ocr, page_context=page_context)
+        ocr_func = partial(process_single_image_ocr, page_context=page_context, page_text=page_text)
         future_to_image = {executor.submit(ocr_func, img_data): img_data 
                           for img_data in valid_images}
         
@@ -669,13 +669,16 @@ def has_meaningful_content(pil_image: Image.Image) -> bool:
     
     return has_basic_content or is_technical
 
-def is_technically_relevant(ocr_text: str, pil_image: Image.Image, page_num: int, page_context: Dict[str, Any] = None) -> bool:
+def is_technically_relevant(ocr_text: str, page_text: str, pil_image: Image.Image, page_num: int, page_context: Dict[str, Any] = None) -> bool:
     """
-    Enhanced filtering to determine if an image is technically relevant to robotics
+    Enhanced filtering to determine if an image is technically relevant to robotics.
+    Now considers the full page text for context.
     """
-    # Convert OCR text to lowercase for case-insensitive matching
+    # Convert all text to lowercase for case-insensitive matching
     ocr_lower = ocr_text.lower()
-    
+    page_lower = page_text.lower()
+    combined_text = ocr_lower + " " + page_lower
+
     # Initialize context if not provided
     if page_context is None:
         page_context = {'is_intro_page': False, 'is_team_page': False, 
@@ -686,114 +689,56 @@ def is_technically_relevant(ocr_text: str, pil_image: Image.Image, page_num: int
     if page_context.get('is_social_page', False):
         return False  # Exclude all images from social/fun pages
     
-    if page_context.get('is_intro_page', False) and page_num <= 5:
-        # Be very strict on intro pages
-        technical_in_image = any(keyword in ocr_lower for keyword in TECHNICAL_KEYWORDS[:10])  # Top technical keywords
-        if not technical_in_image:
+    # On intro or team pages, require strong technical keywords in the combined text
+    if page_context.get('is_intro_page', False) or page_context.get('is_team_page', False):
+        if not any(keyword in combined_text for keyword in TECHNICAL_KEYWORDS):
             return False
-    
-    if page_context.get('is_team_page', False):
-        # Only include if image has clear technical content
-        technical_in_image = any(keyword in ocr_lower for keyword in TECHNICAL_KEYWORDS[:15])
-        if not technical_in_image:
-            return False
-    
+
     # Check for irrelevant keywords that suggest non-technical content
     irrelevant_score = 0
     for keyword in IRRELEVANT_KEYWORDS:
-        if keyword in ocr_lower:
+        if keyword in ocr_lower:  # Check only image text for irrelevant keywords
             irrelevant_score += 1
     
-    # Check for technical keywords that suggest relevant content
+    # Check for technical keywords in the combined text
     technical_score = 0
     for keyword in TECHNICAL_KEYWORDS:
-        if keyword in ocr_lower:
+        if keyword in combined_text:
             technical_score += 1
     
-    # Additional heuristics based on content patterns
-    
-    # 1. Filter out images with excessive social media language
-    social_indicators = ['@', '#hashtag', 'follow us', 'like and subscribe', 
-                        'social media', 'post', 'share', 'comment']
-    for indicator in social_indicators:
-        if indicator in ocr_lower:
-            irrelevant_score += 2
-    
-    # 2. Filter out images that are primarily text with non-technical content
-    if len(ocr_text) > 50:  # Substantial text content
-        # Check if it's mostly non-technical text
-        words = ocr_lower.split()
-        non_technical_words = ['welcome', 'introduction', 'about', 'team', 'members',
-                              'sponsors', 'thank', 'thanks', 'acknowledgment', 'fun',
-                              'joke', 'meme', 'funny', 'laugh', 'smile']
-        non_tech_count = sum(1 for word in words if word in non_technical_words)
-        if non_tech_count > len(words) * 0.3:  # More than 30% non-technical words
-            irrelevant_score += 3
-    
-    # 3. Filter based on image characteristics for likely memes/social content
-    width, height = pil_image.size
-    
-    # Very wide images often contain memes or banners
-    if width / height > 3:
-        irrelevant_score += 1
-    
-    # Square images with minimal text often are logos or memes
-    if abs(width - height) < min(width, height) * 0.1 and len(ocr_text) < 20:
-        irrelevant_score += 1
-    
-    # 4. Page-based filtering - first few pages often contain intro/team content
-    if page_num <= 3:  # First 3 pages
-        intro_keywords = ['welcome', 'introduction', 'about', 'overview', 'team']
-        for keyword in intro_keywords:
-            if keyword in ocr_lower:
-                irrelevant_score += 2
-    
-    # 5. Filter images with primarily names/titles (often team photos or credits)
-    if len(ocr_text) > 20:
-        # Look for patterns like "John Smith", "Team Captain", etc.
-        import re
-        name_patterns = [
-            r'\b[A-Z][a-z]+ [A-Z][a-z]+\b',  # First Last name pattern
-            r'\bcaptain\b', r'\bmentor\b', r'\bcoach\b', r'\bstudent\b',
-            r'\bpresident\b', r'\bvice\b', r'\bdirector\b'
-        ]
-        name_matches = sum(len(re.findall(pattern, ocr_text, re.IGNORECASE)) 
-                          for pattern in name_patterns)
-        if name_matches > 3:  # Multiple name/title patterns
-            irrelevant_score += 2
-    
-    # 6. Boost score for technical diagrams and CAD images
+    # Boost score for technical diagrams and CAD images based on image text
     technical_visual_indicators = ['dimension', 'measurement', 'scale', 'view',
                                   'section', 'detail', 'assembly', 'part']
     for indicator in technical_visual_indicators:
         if indicator in ocr_lower:
             technical_score += 2
-    
-    # 7. Filter out images with excessive punctuation (often decorative)
-    if len(ocr_text) > 10:
-        punctuation_ratio = sum(1 for char in ocr_text if not char.isalnum() and not char.isspace()) / len(ocr_text)
-        if punctuation_ratio > 0.3:  # More than 30% punctuation
-            irrelevant_score += 1
-    
+            
     # Decision logic
-    # If technical score is high, likely relevant
-    if technical_score >= 3:
+    # If technical score is high, it's likely relevant
+    if technical_score >= 5:
         return True
     
-    # If irrelevant score is high, likely not relevant
+    # If irrelevant score from image is high, it's likely not relevant
     if irrelevant_score >= 3:
         return False
     
-    # For borderline cases, prefer inclusion if there's any technical content
-    if technical_score > 0 and irrelevant_score <= 1:
+    # If page has strong technical context, be more lenient with image text
+    if page_context.get('is_technical_page', False) and technical_score >= 2:
+        return True
+
+    # For borderline cases, prefer inclusion if there's some technical content
+    if technical_score > 1 and irrelevant_score <= 1:
         return True
     
     # If no clear technical content and some irrelevant indicators, exclude
-    if technical_score == 0 and irrelevant_score > 0:
+    if technical_score <= 1 and irrelevant_score > 0:
         return False
     
-    # Default to inclusion if uncertain (better to have false positives than miss technical content)
-    return True
+    # Default to inclusion if uncertain, especially if the page has technical context
+    if page_context.get('technical_score', 0) > 2:
+        return True
+
+    return False
 
 def split_text(documents: List[Document]) -> List[Document]:
     """
