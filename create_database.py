@@ -18,10 +18,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 import pytesseract
+from transformers import BlipProcessor, BlipForConditionalGeneration
 
 # Configure paths
 DATA_PATH = "data"
 IMAGES_PATH = os.path.join(DATA_PATH, "images")
+REJECTED_IMAGES_PATH = os.path.join(DATA_PATH, "rejected_images")
 CHROMA_PATH = "db"
 
 # Parallelization settings
@@ -81,14 +83,70 @@ TECHNICAL_KEYWORDS = [
     'autonomous period', 'endgame', 'points', 'ranking'
 ]
 
+# Captioning model setup
+CAPTIONING_ENABLED = True  # Set to False to disable image captioning
+CAPTIONING_MODEL_ID = "Salesforce/blip-image-captioning-large"
+captioning_processor = None
+captioning_model = None
+
+def load_captioning_model():
+    """
+    Load the image captioning model and processor from Hugging Face.
+    """
+    global captioning_processor, captioning_model, CAPTIONING_ENABLED
+    if not CAPTIONING_ENABLED:
+        print("Image captioning is disabled.")
+        return
+    
+    if captioning_model is None:
+        try:
+            print(f"Loading image captioning model: {CAPTIONING_MODEL_ID}...")
+            captioning_processor = BlipProcessor.from_pretrained(CAPTIONING_MODEL_ID)
+            captioning_model = BlipForConditionalGeneration.from_pretrained(CAPTIONING_MODEL_ID)
+            print("Image captioning model loaded successfully.")
+        except Exception as e:
+            print(f"Error loading captioning model: {e}")
+            print("Please ensure you have 'transformers' and 'torch' installed.")
+            CAPTIONING_ENABLED = False
+
+def generate_caption(pil_image: Image.Image) -> str:
+    """
+    Generate a caption for an image using the pre-trained model.
+    """
+    if not CAPTIONING_ENABLED or captioning_model is None or captioning_processor is None:
+        return ""
+    
+    try:
+        # Prepare image for the model
+        inputs = captioning_processor(images=pil_image, return_tensors="pt")
+        
+        # Generate caption
+        outputs = captioning_model.generate(**inputs, max_length=75)
+        
+        # Decode caption
+        caption = captioning_processor.decode(outputs[0], skip_special_tokens=True)
+        
+        return caption.strip()
+    except Exception as e:
+        print(f"Error during image captioning: {e}")
+        return ""
+
 def main():
     print("Starting database creation...")
     start_time = time.time()
     
-    # Clear existing database
+    # Load the captioning model
+    load_captioning_model()
+    
+    # Clear existing database and rejected images
     if os.path.exists(CHROMA_PATH):
         print(f"Removing existing database at {CHROMA_PATH}")
         shutil.rmtree(CHROMA_PATH)
+    
+    if os.path.exists(REJECTED_IMAGES_PATH):
+        print(f"Removing existing rejected images at {REJECTED_IMAGES_PATH}")
+        shutil.rmtree(REJECTED_IMAGES_PATH)
+    os.makedirs(REJECTED_IMAGES_PATH)
     
     # Find all PDF files in the data directory
     pdf_files = glob.glob(os.path.join(DATA_PATH, "*.pdf"))
@@ -362,23 +420,24 @@ def extract_images_from_page(page, page_num: int, pdf_images_path: str, page_con
                 img_data = pix.tobytes("png")
                 pil_image = Image.open(io.BytesIO(img_data))
                 
-                # Filter out useless images
-                if not is_useful_image(pil_image):
-                    print(f"Filtered out image: page{page_num}_img{img_index}.png (not useful)")
-                    pix = None
-                    continue
-                
-                # Generate filename
+                # Generate filename and path
                 filename = f"page{page_num}_img{img_index}.png"
                 file_path = os.path.join(pdf_images_path, filename)
                 
-                # Save image
+                # Save image temporarily
                 pil_image.save(file_path)
+
+                # Filter out useless images based on size and aspect ratio
+                if not is_useful_image(pil_image):
+                    reason = f"Initial filter: size {pil_image.size}, aspect ratio"
+                    move_to_rejected(file_path, reason)
+                    pix = None
+                    continue
                 
                 # Check file size after saving
                 if os.path.getsize(file_path) < MIN_FILE_SIZE:
-                    print(f"Filtered out image: {filename} (too small file size)")
-                    os.remove(file_path)
+                    reason = f"File size too small ({os.path.getsize(file_path)} bytes)"
+                    move_to_rejected(file_path, reason)
                     pix = None
                     continue
                 
@@ -403,7 +462,7 @@ def extract_images_from_page(page, page_num: int, pdf_images_path: str, page_con
 
 def process_single_image_ocr(image_data: Dict[str, Any], page_context: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    Process a single image for OCR and filtering
+    Process a single image for OCR, with captioning fallback, and filtering.
     """
     filename = image_data["filename"]
     file_path = image_data["file_path"]
@@ -417,19 +476,31 @@ def process_single_image_ocr(image_data: Dict[str, Any], page_context: Dict[str,
             ocr_text = pytesseract.image_to_string(pil_image).strip()
         except Exception as e:
             print(f"OCR failed for {filename}: {e}")
+
+        # Fallback to image captioning if OCR is weak
+        caption_text = ""
+        if CAPTIONING_ENABLED and len(ocr_text) < MIN_OCR_CHARS:
+            caption_text = generate_caption(pil_image)
+            if caption_text:
+                print(f"Generated caption for {filename}: '{caption_text}'")
         
-        # Filter based on OCR content
-        if len(ocr_text) < MIN_OCR_CHARS and not has_meaningful_content(pil_image):
-            print(f"Filtered out image: {filename} (no meaningful content)")
-            if os.path.exists(file_path):
-                os.remove(file_path)
+        # Use OCR text if it's substantial, otherwise prioritize caption
+        image_text = ocr_text if len(ocr_text) >= MIN_OCR_CHARS else caption_text
+        
+        # If still no text, use a generic descriptor if content is meaningful
+        if not image_text.strip() and has_meaningful_content(pil_image):
+            image_text = "Meaningful visual content without readable text."
+
+        # Filter based on OCR/caption content
+        if len(image_text) < MIN_OCR_CHARS:
+            reason = "No meaningful text content from OCR or captioning"
+            move_to_rejected(file_path, reason)
             return None
         
         # Enhanced content filtering for technical relevance
-        if not is_technically_relevant(ocr_text, pil_image, page_num, page_context):
-            print(f"Filtered out image: {filename} (not technically relevant)")
-            if os.path.exists(file_path):
-                os.remove(file_path)
+        if not is_technically_relevant(image_text, pil_image, page_num, page_context):
+            reason = f"Not technically relevant based on text: '{image_text[:50]}...'"
+            move_to_rejected(file_path, reason)
             return None
         
         # Create image info
@@ -438,17 +509,16 @@ def process_single_image_ocr(image_data: Dict[str, Any], page_context: Dict[str,
             "file_path": file_path,
             "page": page_num + 1,
             "index": image_data["img_index"],
-            "ocr_text": ocr_text,
+            "ocr_text": image_text,  # Now contains either OCR or caption
             "size": pil_image.size
         }
         
-        print(f"Extracted image: {filename} (OCR: {len(ocr_text)} chars, Size: {pil_image.size})")
+        print(f"Extracted image: {filename} (Text: {len(image_text)} chars, Size: {pil_image.size})")
         return img_info
         
     except Exception as e:
-        print(f"Error processing image {filename}: {e}")
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        reason = f"Error during processing: {e}"
+        move_to_rejected(file_path, reason)
         return None
 
 def process_images_parallel(valid_images: List[Dict[str, Any]], page_context: Dict[str, Any] = None) -> List[Dict[str, Any]]:
@@ -903,6 +973,26 @@ def benchmark_performance():
         # Restore original setting
         ENABLE_PARALLEL_PROCESSING = original_setting
 
+def move_to_rejected(file_path: str, reason: str):
+    """Moves a file to the rejected images directory."""
+    if not os.path.exists(file_path):
+        return
+    try:
+        # Ensure the base rejected directory exists
+        os.makedirs(REJECTED_IMAGES_PATH, exist_ok=True)
+        
+        # Create a subdirectory for the PDF source
+        pdf_name = os.path.basename(os.path.dirname(file_path))
+        rejected_subfolder = os.path.join(REJECTED_IMAGES_PATH, pdf_name)
+        os.makedirs(rejected_subfolder, exist_ok=True)
+        
+        # Move the file
+        new_path = os.path.join(rejected_subfolder, os.path.basename(file_path))
+        shutil.move(file_path, new_path)
+        print(f"Rejected image '{os.path.basename(file_path)}' moved to rejected folder. Reason: {reason}")
+    except Exception as e:
+        print(f"Error moving rejected image {os.path.basename(file_path)}: {e}")
+
 if __name__ == "__main__":
     import sys
     
@@ -919,11 +1009,3 @@ if __name__ == "__main__":
                 test_database()
         except KeyboardInterrupt:
             print("\nSkipping database test.")
-        
-        # Optionally run benchmark
-        print("\nWould you like to run a performance benchmark? (y/n)")
-        try:
-            if input().lower().startswith('y'):
-                benchmark_performance()
-        except KeyboardInterrupt:
-            print("\nSkipping benchmark.")
