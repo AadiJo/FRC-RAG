@@ -26,10 +26,11 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RL
 from reportlab.lib.styles import getSampleStyleSheet
 
 # Configure paths
-DATA_PATH = "data"
+BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+DATA_PATH = os.path.join(BASE_PATH, "data")
 IMAGES_PATH = os.path.join(DATA_PATH, "images")
 REJECTED_IMAGES_PATH = os.path.join(DATA_PATH, "rejected_images")
-CHROMA_PATH = "db"
+CHROMA_PATH = os.path.join(BASE_PATH, "db")
 IMAGE_CONTEXTS_PDF_PATH = os.path.join(DATA_PATH, "image_contexts.pdf")
 
 # Parallelization settings
