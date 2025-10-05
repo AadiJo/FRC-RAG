@@ -113,6 +113,18 @@ def create_context_excerpt(text: str, max_length: int = 1500) -> str:
 
     return cleaned_text[: max_length - 3].rstrip() + "..."
 
+def convert_to_relative_path(absolute_path: str, base_path: str) -> str:
+    """Convert absolute path to relative path from project root for web compatibility."""
+    try:
+        rel_path = os.path.relpath(absolute_path, base_path)
+        return rel_path
+    except (ValueError, OSError):
+        # Fallback: try to extract the data/images/... part
+        if "data/images/" in absolute_path:
+            idx = absolute_path.find("data/images/")
+            return absolute_path[idx:]
+        return absolute_path
+
 def format_image_context(img_info: Dict[str, Any], pdf_name: str, page_num: int, page_context: str) -> str:
     """
     Format image context with consistent styling and comprehensive information.
@@ -608,10 +620,11 @@ def process_single_image_ocr(image_data: Dict[str, Any], page_context: Dict[str,
             move_to_rejected(file_path, reason)
             return None
         
-        # Create image info
+        # Create image info with relative path for web compatibility
+        relative_path = convert_to_relative_path(file_path, BASE_PATH)
         img_info = {
             "filename": filename,
-            "file_path": file_path,
+            "file_path": relative_path,
             "page": page_num + 1,
             "index": image_data["img_index"],
             "ocr_text": image_text,  # Now contains either OCR or caption
