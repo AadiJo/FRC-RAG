@@ -1004,9 +1004,19 @@ def write_image_context_manifest(documents: List[Document], manifest_path: str =
 
         image_path = entry.get("image_path")
         added_visual = False
-        if image_path and os.path.exists(image_path):
+        
+        # Convert relative path back to absolute path for file access
+        if image_path:
+            if not os.path.isabs(image_path):
+                absolute_image_path = os.path.join(BASE_PATH, image_path)
+            else:
+                absolute_image_path = image_path
+        else:
+            absolute_image_path = None
+            
+        if absolute_image_path and os.path.exists(absolute_image_path):
             try:
-                with Image.open(image_path) as pil_img:
+                with Image.open(absolute_image_path) as pil_img:
                     width, height = pil_img.size
 
                 max_width = 5.5 * inch
@@ -1023,7 +1033,7 @@ def write_image_context_manifest(documents: List[Document], manifest_path: str =
                     display_width = max_width
                     display_height = max_height
 
-                story.append(RLImage(image_path, width=display_width, height=display_height))
+                story.append(RLImage(absolute_image_path, width=display_width, height=display_height))
                 story.append(Spacer(1, 0.15 * inch))
                 added_visual = True
             except Exception as exc:
