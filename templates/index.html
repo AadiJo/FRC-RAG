@@ -105,9 +105,13 @@
 
         <!-- Loading Indicator -->
         <div class="loading-overlay" id="loadingOverlay">
-            <div class="loading-spinner">
-                <i class="fas fa-cog fa-spin"></i>
-                <p>Processing your query...</p>
+            <div class="loading-box">
+                <div class="loading-content">
+                    <div class="loading-stage" id="loadingStage">Querying</div>
+                    <div class="loading-progress">
+                        <div class="loading-bar" id="loadingBar"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -408,7 +412,20 @@
 
         function showLoading() {
             const loadingOverlay = document.getElementById('loadingOverlay');
+            const loadingStage = document.getElementById('loadingStage');
             loadingOverlay.style.display = 'flex';
+            
+            // Reset to first stage
+            loadingStage.textContent = 'Querying';
+            
+            // Progress through stages
+            setTimeout(() => {
+                loadingStage.textContent = 'Processing';
+            }, 800);
+            
+            setTimeout(() => {
+                loadingStage.textContent = 'Finishing up';
+            }, 2000);
         }
 
         function hideLoading() {
