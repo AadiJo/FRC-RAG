@@ -16,7 +16,7 @@
 <body>
     <div class="chat-container">
         <!-- Sidebar -->
-        <div class="sidebar">
+        <div class="sidebar collapsed">
             <div class="sidebar-header">
                 <div class="sidebar-logo">
                     <div class="logo-placeholder">
@@ -53,7 +53,7 @@
                         <i class="fas fa-bars"></i>
                     </button>
                     <div class="header-title">
-                        <h1>FRC RAG Chat Assistant</h1>
+                        <h1>FRC RAG</h1>
                     </div>
                 </div>
             </div>
@@ -69,7 +69,7 @@
                         </div>
                         <div class="message-text-container">
                             <div class="message-text">
-                                <h3>Welcome to FRC RAG Chat Assistant! 🤖</h3>
+                                <h3>Welcome to FRC RAG! 🤖</h3>
                                 <p>I can help you with First Robotics Competition questions using data from team technical binders. Here's what I can do:</p>
                                 <ul>
                                     <li><strong>Answer technical questions</strong> about FRC robots, mechanisms, and strategies</li>
@@ -206,6 +206,42 @@
                 textContentDiv.appendChild(imagesDiv);
             }
 
+            // Add feedback buttons for assistant messages (non-error)
+            if (sender === 'assistant' && !isError) {
+                const feedbackDiv = document.createElement('div');
+                feedbackDiv.className = 'feedback-buttons';
+                
+                const feedbackLabel = document.createElement('div');
+                feedbackLabel.className = 'feedback-label';
+                feedbackLabel.textContent = 'Was this response helpful?';
+                
+                const buttonsContainer = document.createElement('div');
+                buttonsContainer.className = 'feedback-button-container';
+                
+                // Good response button
+                const goodButton = document.createElement('button');
+                goodButton.className = 'feedback-btn feedback-good';
+                goodButton.innerHTML = '<i class="fas fa-thumbs-up"></i> Good';
+                goodButton.onclick = () => submitFeedback(text, 'good', feedbackDiv);
+                
+                // Bad response button
+                const badButton = document.createElement('button');
+                badButton.className = 'feedback-btn feedback-bad';
+                badButton.innerHTML = '<i class="fas fa-thumbs-down"></i> Bad';
+                badButton.onclick = () => submitFeedback(text, 'bad', feedbackDiv);
+                
+                buttonsContainer.appendChild(goodButton);
+                buttonsContainer.appendChild(badButton);
+                
+                // Mark this as the latest assistant message for redo button
+                messageDiv.classList.add('latest-assistant-message');
+                
+                feedbackDiv.appendChild(feedbackLabel);
+                feedbackDiv.appendChild(buttonsContainer);
+                
+                textContentDiv.appendChild(feedbackDiv);
+            }
+
             contentDiv.appendChild(avatarDiv);
             contentDiv.appendChild(textContentDiv);
 
@@ -213,6 +249,32 @@
 
             const chatMessages = document.getElementById('chatMessages');
             chatMessages.appendChild(messageDiv);
+            
+            // If this is an assistant message, manage redo button visibility
+            if (sender === 'assistant' && !isError) {
+                // Remove redo button from all previous assistant messages
+                const previousLatestMessages = chatMessages.querySelectorAll('.latest-assistant-message');
+                previousLatestMessages.forEach(msg => {
+                    if (msg !== messageDiv) {
+                        msg.classList.remove('latest-assistant-message');
+                        const redoBtn = msg.querySelector('.feedback-redo');
+                        if (redoBtn) {
+                            redoBtn.remove();
+                        }
+                    }
+                });
+                
+                // Add redo button to the current (latest) message
+                const buttonsContainer = messageDiv.querySelector('.feedback-button-container');
+                if (buttonsContainer) {
+                    const redoButton = document.createElement('button');
+                    redoButton.className = 'feedback-btn feedback-redo';
+                    redoButton.innerHTML = '<i class="fas fa-redo"></i> Redo';
+                    redoButton.onclick = () => submitFeedback(text, 'redo', messageDiv.querySelector('.feedback-buttons'));
+                    buttonsContainer.appendChild(redoButton);
+                }
+            }
+            
             scrollToBottom();
         }
 
@@ -390,9 +452,64 @@
         const modalClose = document.getElementById('modalClose');
         const sidebarToggle = document.getElementById('sidebarToggle');
 
+        // Global variable to store the current query for feedback
+        let currentQuery = '';
+
+        // Feedback function
+        function submitFeedback(responseText, feedbackType, feedbackDiv) {
+            // Disable all buttons in this feedback div to prevent double-clicking
+            const buttons = feedbackDiv.querySelectorAll('.feedback-btn');
+            buttons.forEach(btn => btn.disabled = true);
+            
+            // Show loading state
+            const buttonsContainer = feedbackDiv.querySelector('.feedback-button-container');
+            buttonsContainer.innerHTML = '<span class="feedback-loading"><i class="fas fa-spinner fa-spin"></i> Submitting feedback...</span>';
+
+            fetch('/api/feedback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    query: currentQuery,
+                    response: responseText,
+                    feedback_type: feedbackType
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Show success message
+                    buttonsContainer.innerHTML = `<span class="feedback-success"><i class="fas fa-check"></i> Thank you for your feedback!</span>`;
+                    
+                    // If redo was clicked, trigger a new query with the same input
+                    if (feedbackType === 'redo') {
+                        setTimeout(() => {
+                            messageInput.value = currentQuery;
+                            sendMessage();
+                        }, 1000);
+                    }
+                } else {
+                    // Show error and restore buttons
+                    buttonsContainer.innerHTML = '<span class="feedback-error"><i class="fas fa-exclamation-triangle"></i> Failed to submit feedback</span>';
+                    setTimeout(() => {
+                        location.reload(); // Simple way to restore the interface
+                    }, 2000);
+                }
+            })
+            .catch(error => {
+                console.error('Feedback error:', error);
+                buttonsContainer.innerHTML = '<span class="feedback-error"><i class="fas fa-exclamation-triangle"></i> Failed to submit feedback</span>';
+                setTimeout(() => {
+                    location.reload(); // Simple way to restore the interface
+                }, 2000);
+            });
+        }
+
         // Sidebar toggle functionality
         sidebarToggle.addEventListener('click', function() {
-            document.querySelector('.sidebar').classList.toggle('collapsed');
+            const sidebar = document.querySelector('.sidebar');
+            sidebar.classList.toggle('collapsed');
         });
 
         // Event Listeners
@@ -429,6 +546,9 @@
                 console.log('No message, returning');
                 return;
             }
+
+            // Store the current query for feedback
+            currentQuery = message;
 
             console.log('Adding user message to chat');
             // Add user message to chat

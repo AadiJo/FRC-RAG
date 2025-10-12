@@ -32,10 +32,15 @@ body {
     flex-shrink: 0;
     position: relative;
     z-index: 100;
+    transform: translateX(-260px); /* Hide by default */
 }
 
 .sidebar.collapsed {
     transform: translateX(-260px);
+}
+
+.sidebar:not(.collapsed) {
+    transform: translateX(0);
 }
 
 .sidebar-header {
@@ -282,6 +287,100 @@ body {
 .message-text hr { border: none; height: 1px; background: #333; margin: 16px 0; }
 .message-text a { color: #58a6ff; text-decoration: underline; }
 .message-text img { max-width: 100%; height: auto; border-radius: 6px; }
+
+/* Feedback buttons */
+.feedback-buttons {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #2a2a2a;
+    width: 100%;
+}
+
+.feedback-label {
+    font-size: 13px;
+    color: #888;
+    margin-bottom: 8px;
+    text-align: left;
+}
+
+.feedback-button-container {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+}
+
+.feedback-btn {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    color: #ccc;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 70px;
+    height: 32px;
+    white-space: nowrap;
+}
+
+.feedback-btn:hover {
+    background: #3a3a3a;
+    border-color: #4a4a4a;
+    color: #fff;
+}
+
+.feedback-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.feedback-good:hover {
+    background: #1a6f3a;
+    border-color: #4caf50;
+    color: #fff;
+}
+
+.feedback-bad:hover {
+    background: #6f1a1a;
+    border-color: #f44336;
+    color: #fff;
+}
+
+.feedback-redo:hover {
+    background: #1a4a6f;
+    border-color: #2196f3;
+    color: #fff;
+}
+
+.feedback-loading {
+    color: #888;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.feedback-success {
+    color: #4caf50;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.feedback-error {
+    color: #f44336;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
 
 /* Welcome message */
 .welcome-message .message-text {

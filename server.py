@@ -301,6 +301,51 @@ def api_suggestions():
         logger.error(f"Error in suggestions: {e}", exc_info=True)
         return jsonify({"suggestions": []}), 500
 
+@app.route('/api/feedback', methods=['POST'])
+def api_feedback():
+    """API endpoint for receiving user feedback on responses"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+        
+        query = data.get('query', '').strip()
+        response_text = data.get('response', '').strip()
+        feedback_type = data.get('feedback_type', '').strip()  # 'good', 'bad', 'redo'
+        timestamp = datetime.now().isoformat()
+        
+        if not query or not feedback_type:
+            return jsonify({"error": "Query and feedback_type are required"}), 400
+        
+        if feedback_type not in ['good', 'bad', 'redo']:
+            return jsonify({"error": "feedback_type must be 'good', 'bad', or 'redo'"}), 400
+        
+        client_id = ollama_proxy.get_client_id(request)
+        
+        # Log the feedback
+        feedback_log = {
+            "timestamp": timestamp,
+            "client_id": client_id,
+            "query": query,
+            "response_preview": response_text[:200] + ('...' if len(response_text) > 200 else ''),
+            "feedback_type": feedback_type,
+            "ip_address": request.remote_addr,
+            "user_agent": request.headers.get('User-Agent', '')
+        }
+        
+        logger.info(f"FEEDBACK: {feedback_type.upper()} - Client: {client_id} - Query: {query[:100]}")
+        logger.info(f"FEEDBACK_DETAIL: {json.dumps(feedback_log)}")
+        
+        return jsonify({
+            "success": True,
+            "message": "Feedback received successfully",
+            "timestamp": timestamp
+        })
+        
+    except Exception as e:
+        logger.error(f"Error processing feedback: {e}", exc_info=True)
+        return jsonify({"error": "Failed to process feedback"}), 500
+
 @app.route('/api/seasons')
 def api_seasons():
     """API endpoint for getting available seasons"""
