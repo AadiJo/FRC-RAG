@@ -7,21 +7,44 @@ import os
 import subprocess
 import time
 import requests
+import numpy as np
 from typing import List, Dict, Any, Tuple
 from langchain_community.vectorstores import Chroma
 from langchain.prompts import ChatPromptTemplate
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.llms import Ollama
 from .game_piece_mapper import GamePieceMapper
+from ..utils.query_cache import QueryCache, ChunkCache
 
 class QueryProcessor:
-    def __init__(self, chroma_path: str = "db", images_path: str = "data/images"):
+    def __init__(self, chroma_path: str = "db", images_path: str = "data/images", 
+                 enable_cache: bool = True, cache_config: Dict[str, Any] = None):
         self.chroma_path = chroma_path
         self.images_path = images_path
         self.game_piece_mapper = GamePieceMapper()
         
         # Initialize embedding function
         self.embedding_function = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        
+        # Initialize cache system
+        self.enable_cache = enable_cache
+        if self.enable_cache:
+            cache_config = cache_config or {}
+            self.query_cache = QueryCache(
+                max_size=cache_config.get('max_size', 1000),
+                similarity_threshold=cache_config.get('similarity_threshold', 0.92),
+                ttl_seconds=cache_config.get('ttl_seconds', 3600),
+                enable_semantic_cache=cache_config.get('enable_semantic_cache', True)
+            )
+            self.chunk_cache = ChunkCache(
+                max_size=cache_config.get('chunk_cache_size', 500),
+                ttl_seconds=cache_config.get('chunk_ttl_seconds', 1800)
+            )
+            print("✅ Query cache system enabled")
+        else:
+            self.query_cache = None
+            self.chunk_cache = None
+            print("⚠️  Query cache system disabled")
         
         # Start Ollama service
         self._ensure_ollama_running()
@@ -146,11 +169,29 @@ Instructions:
 
     def process_query(self, query: str, k: int = 5) -> Dict[str, Any]:
         """
-        Process a user query with game piece enhancement
+        Process a user query with game piece enhancement and caching
         Returns a comprehensive response with context and metadata
         """
         if not self.db:
             return {"error": "Database not initialized"}
+        
+        # Check cache first (if enabled)
+        if self.enable_cache and self.query_cache:
+            # Generate query embedding for semantic cache lookup
+            query_embedding = None
+            try:
+                query_embedding = np.array(self.embedding_function.embed_query(query))
+            except Exception as e:
+                print(f"Warning: Could not generate query embedding for cache: {e}")
+            
+            # Try to get cached response
+            cached_response = self.query_cache.get(query, k, query_embedding)
+            if cached_response is not None:
+                print(f"✅ Cache hit ({cached_response.get('_cache_type', 'unknown')})")
+                return cached_response
+        
+        # Cache miss - process query normally
+        print("🔍 Processing new query (cache miss)")
         
         # Step 1: Analyze query for game pieces
         matched_pieces, enhanced_query = self.game_piece_mapper.enhance_query(query)
@@ -165,14 +206,34 @@ Instructions:
         if not enhanced_query.strip():
             enhanced_query = query
         
-        # Step 2: Search database with enhanced query
+        # Step 2: Search database with enhanced query (with chunk caching)
         try:
-            results = self.db.similarity_search(enhanced_query, k=k)
+            # Generate embedding for the enhanced query
+            enhanced_embedding = None
+            if self.enable_cache and self.chunk_cache:
+                try:
+                    enhanced_embedding = np.array(self.embedding_function.embed_query(enhanced_query))
+                    
+                    # Try to get cached chunks
+                    cached_chunks = self.chunk_cache.get(enhanced_embedding, k)
+                    if cached_chunks is not None:
+                        print(f"✅ Chunk cache hit")
+                        results = cached_chunks
+                    else:
+                        # Perform similarity search
+                        results = self.db.similarity_search(enhanced_query, k=k)
+                        # Cache the chunks
+                        self.chunk_cache.set(enhanced_embedding, k, results)
+                except Exception as e:
+                    print(f"Warning: Chunk cache error: {e}")
+                    results = self.db.similarity_search(enhanced_query, k=k)
+            else:
+                results = self.db.similarity_search(enhanced_query, k=k)
         except Exception as e:
             return {"error": f"Search failed: {e}"}
         
         if not results:
-            return {
+            response = {
                 "response": "I couldn't find relevant information in the database for your query.",
                 "matched_pieces": matched_pieces,
                 "enhanced_query": enhanced_query,
@@ -181,6 +242,16 @@ Instructions:
                 "related_images": [],
                 "game_piece_context": ""
             }
+            
+            # Cache the response (even if no results)
+            if self.enable_cache and self.query_cache:
+                try:
+                    query_embedding = np.array(self.embedding_function.embed_query(query))
+                    self.query_cache.set(query, response, k, query_embedding)
+                except Exception as e:
+                    print(f"Warning: Could not cache response: {e}")
+            
+            return response
         
         # Step 3: Collect related images and prepare context
         related_images = []
@@ -224,7 +295,7 @@ Instructions:
             if game_piece_context:
                 response_text += f"\n\nGame Piece Information:\n{game_piece_context}"
 
-        return {
+        response = {
             "response": response_text,
             "matched_pieces": matched_pieces,
             "enhanced_query": enhanced_query,
@@ -233,6 +304,17 @@ Instructions:
             "related_images": unique_images,
             "game_piece_context": game_piece_context
         }
+        
+        # Cache the response
+        if self.enable_cache and self.query_cache:
+            try:
+                query_embedding = np.array(self.embedding_function.embed_query(query))
+                self.query_cache.set(query, response, k, query_embedding)
+                print("✅ Response cached")
+            except Exception as e:
+                print(f"Warning: Could not cache response: {e}")
+        
+        return response
 
     def _collect_images_from_result(self, doc) -> List[Dict[str, Any]]:
         """Collect image information from a document result"""
@@ -390,3 +472,57 @@ Instructions:
     def get_available_seasons(self) -> List[str]:
         """Get list of available seasons in the database"""
         return list(self.game_piece_mapper.seasons.keys())
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """
+        Get cache statistics
+        
+        Returns:
+            Dictionary containing cache statistics including hit rates
+        """
+        if not self.enable_cache or not self.query_cache:
+            return {
+                "enabled": False,
+                "message": "Cache is disabled"
+            }
+        
+        query_stats = self.query_cache.get_stats()
+        chunk_stats = self.chunk_cache.get_stats() if self.chunk_cache else {}
+        
+        return {
+            "enabled": True,
+            "query_cache": query_stats,
+            "chunk_cache": chunk_stats,
+            "total_memory_saved": {
+                "description": "Estimated queries saved from reprocessing",
+                "count": query_stats['total_hits']
+            }
+        }
+    
+    def clear_cache(self):
+        """Clear all cache entries"""
+        if self.enable_cache:
+            if self.query_cache:
+                self.query_cache.clear()
+            if self.chunk_cache:
+                self.chunk_cache.clear()
+            print("✅ Cache cleared")
+        else:
+            print("⚠️  Cache is disabled")
+    
+    def reset_cache_stats(self):
+        """Reset cache statistics"""
+        if self.enable_cache:
+            if self.query_cache:
+                self.query_cache.reset_stats()
+            print("✅ Cache stats reset")
+        else:
+            print("⚠️  Cache is disabled")
+    
+    def remove_expired_cache_entries(self):
+        """Remove expired cache entries"""
+        if self.enable_cache and self.query_cache:
+            self.query_cache.remove_expired()
+            print("✅ Expired cache entries removed")
+        else:
+            print("⚠️  Cache is disabled")

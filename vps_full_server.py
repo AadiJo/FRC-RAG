@@ -112,7 +112,7 @@ def forward_request(endpoint: str, method: str = 'GET', data: Dict = None, param
 @app.route('/')
 def index():
     """Serve the main frontend page"""
-    return render_template('index_clean.html')
+    return render_template('index.html')
 
 @app.route('/static/<path:filename>')
 def static_files(filename):

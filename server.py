@@ -92,6 +92,14 @@ def health_check():
     stats = ollama_proxy.get_stats()
     tunnel_status = tunnel_manager.get_status()
     
+    # Get cache stats if available
+    cache_stats = None
+    if query_processor:
+        try:
+            cache_stats = query_processor.get_cache_stats()
+        except Exception as e:
+            logger.warning(f"Could not get cache stats: {e}")
+    
     status = "healthy" if ollama_healthy and query_processor else "degraded"
     
     return jsonify({
@@ -104,6 +112,7 @@ def health_check():
             "images": os.path.exists(Config.IMAGES_PATH)
         },
         "stats": stats,
+        "cache": cache_stats,
         "tunnel": tunnel_status,
         "config": {
             "environment": Config.ENVIRONMENT,
@@ -349,15 +358,74 @@ def api_feedback():
 @app.route('/api/seasons')
 def api_seasons():
     """API endpoint for getting available seasons"""
-    if not query_processor:
-        return jsonify({"error": "Query processor not initialized"}), 500
-    
     try:
+        if not query_processor:
+            return jsonify({"error": "Query processor not initialized"}), 500
+        
         seasons = query_processor.get_available_seasons()
-        return jsonify({"seasons": seasons})
+        return jsonify({
+            "seasons": seasons,
+            "count": len(seasons)
+        })
     except Exception as e:
         logger.error(f"Error getting seasons: {e}", exc_info=True)
-        return jsonify({"seasons": []})
+        return jsonify({"error": "Failed to get seasons"}), 500
+
+@app.route('/api/cache/stats')
+def api_cache_stats():
+    """API endpoint for getting cache statistics"""
+    try:
+        if not query_processor:
+            return jsonify({"error": "Query processor not initialized"}), 500
+        
+        cache_stats = query_processor.get_cache_stats()
+        return jsonify(cache_stats)
+    except Exception as e:
+        logger.error(f"Error getting cache stats: {e}", exc_info=True)
+        return jsonify({"error": "Failed to get cache stats"}), 500
+
+@app.route('/api/cache/clear', methods=['POST'])
+def api_cache_clear():
+    """API endpoint for clearing the cache (admin only)"""
+    try:
+        # Check API key if required
+        key_error = require_api_key()
+        if key_error:
+            return key_error
+        
+        if not query_processor:
+            return jsonify({"error": "Query processor not initialized"}), 500
+        
+        query_processor.clear_cache()
+        logger.info("Cache cleared via API")
+        
+        return jsonify({
+            "success": True,
+            "message": "Cache cleared successfully",
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error clearing cache: {e}", exc_info=True)
+        return jsonify({"error": "Failed to clear cache"}), 500
+
+@app.route('/api/cache/reset-stats', methods=['POST'])
+def api_cache_reset_stats():
+    """API endpoint for resetting cache statistics"""
+    try:
+        if not query_processor:
+            return jsonify({"error": "Query processor not initialized"}), 500
+        
+        query_processor.reset_cache_stats()
+        logger.info("Cache stats reset via API")
+        
+        return jsonify({
+            "success": True,
+            "message": "Cache statistics reset successfully",
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error resetting cache stats: {e}", exc_info=True)
+        return jsonify({"error": "Failed to reset cache stats"}), 500
 
 def cleanup_on_exit():
     """Cleanup function called on exit"""
