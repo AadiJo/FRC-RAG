@@ -157,6 +157,71 @@ def query():
         logger.error(f"Error in query endpoint: {str(e)}")
         return jsonify({"error": "Internal server error", "status": "error"}), 500
 
+@app.route('/api/query/stream', methods=['POST'])
+def query_stream():
+    """Handle streaming query requests"""
+    from flask import Response, stream_with_context
+    
+    client_ip = request.remote_addr
+    
+    # Rate limiting
+    if is_rate_limited(client_ip):
+        return jsonify({
+            "error": "Rate limit exceeded. Please wait before making another request.",
+            "status": "rate_limited"
+        }), 429
+    
+    try:
+        data = request.get_json()
+        if not data or 'query' not in data:
+            return jsonify({"error": "Query is required", "status": "bad_request"}), 400
+        
+        logger.info(f"Streaming query from {client_ip}: {data['query'][:100]}...")
+        
+        if not VPSConfig.REMOTE_OLLAMA_URL:
+            return jsonify({"error": "Remote Ollama URL not configured", "status": "error"}), 500
+        
+        url = f"{VPSConfig.REMOTE_OLLAMA_URL.rstrip('/')}/api/query/stream"
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': 'FRC-RAG-VPS-Proxy/1.0'
+        }
+        
+        if VPSConfig.REMOTE_API_KEY:
+            headers['Authorization'] = f'Bearer {VPSConfig.REMOTE_API_KEY}'
+        
+        def generate():
+            """Stream the response from the remote server"""
+            try:
+                with requests.post(url, json=data, headers=headers, stream=True, timeout=120) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        if line:
+                            yield line.decode('utf-8') + '\n'
+            except requests.exceptions.Timeout:
+                logger.error("Timeout streaming from remote server")
+                yield f"data: {{'type': 'error', 'error': 'Request timeout'}}\n\n"
+            except requests.exceptions.ConnectionError:
+                logger.error("Connection error streaming from remote server")
+                yield f"data: {{'type': 'error', 'error': 'Cannot connect to local PC'}}\n\n"
+            except Exception as e:
+                logger.error(f"Error streaming from remote server: {str(e)}")
+                yield f"data: {{'type': 'error', 'error': 'Streaming error: {str(e)}'}}\n\n"
+        
+        return Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+                'Connection': 'keep-alive'
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in streaming query endpoint: {str(e)}")
+        return jsonify({"error": "Internal server error", "status": "error"}), 500
+
 @app.route('/api/ollama/<path:endpoint>', methods=['GET', 'POST'])
 def ollama_proxy(endpoint):
     """Proxy all Ollama API requests to local PC"""
