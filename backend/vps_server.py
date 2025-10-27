@@ -22,8 +22,8 @@ class VPSConfig:
     PORT = int(os.getenv('VPS_PORT', 80))
     
     # Your local PC's tunnel URL
-    REMOTE_OLLAMA_URL = os.getenv('REMOTE_OLLAMA_URL', '')  # Your ngrok URL
-    REMOTE_API_KEY = os.getenv('REMOTE_API_KEY', '')       # API key for your local server
+    REMOTE_OLLAMA_URL = os.getenv('REMOTE_OLLAMA_URL', '')  # Ngrok URL
+    REMOTE_API_KEY = os.getenv('REMOTE_API_KEY', '')       # API key for local server
     
     # VPS settings
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')

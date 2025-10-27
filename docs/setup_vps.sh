@@ -1,32 +1,32 @@
 #!/bin/bash
 
-# VPS Setup Script for FRC RAG
-# Run this after uploading the project folder to /opt/frc-rag
+# Set up my FRC RAG project on a VPS
+# Run this after uploading everything to /opt/frc-rag
 
 set -e
 
 echo "🚀 Setting up FRC RAG on VPS..."
 
-# Ensure we're in the right directory
+# Make sure I'm in the right place
 cd /opt/frc-rag
 
-# Update system
+# Update the system
 echo "📦 Installing system dependencies..."
 apt update && apt upgrade -y
 apt install -y python3 python3-pip python3-venv nginx
 
-# Create virtual environment
+# Set up Python environment
 echo "🐍 Setting up Python environment..."
 python3 -m venv venv
 ./venv/bin/pip install --upgrade pip
 ./venv/bin/pip install -r requirements.txt
 ./venv/bin/pip install gunicorn
 
-# Copy VPS environment file
+# Copy my environment file
 echo "⚙️ Configuring environment..."
 cp .env.vps .env
 
-# Create systemd service
+# Make a service so it runs automatically
 echo "🔧 Creating system service..."
 cat > /etc/systemd/system/frc-rag-vps.service << EOF
 [Unit]
@@ -46,7 +46,7 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-# Configure nginx
+# Make nginx work with my app
 echo "🌐 Configuring web server..."
 cat > /etc/nginx/sites-available/frc-rag << EOF
 server {
@@ -73,17 +73,17 @@ server {
 }
 EOF
 
-# Enable nginx site
+# Turn on the nginx config
 ln -sf /etc/nginx/sites-available/frc-rag /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 
-# Test nginx config
+# Make sure nginx config is good
 nginx -t
 
 # Create log file
 touch /var/log/frc-rag-vps.log
 
-# Start services
+# Start everything up
 echo "🎬 Starting services..."
 systemctl daemon-reload
 systemctl enable frc-rag-vps
@@ -91,7 +91,7 @@ systemctl start frc-rag-vps
 systemctl enable nginx
 systemctl restart nginx
 
-# Configure firewall
+# Set up firewall if needed
 if command -v ufw &> /dev/null; then
     echo "🔒 Configuring firewall..."
     ufw allow 'Nginx Full'
@@ -99,7 +99,7 @@ if command -v ufw &> /dev/null; then
     echo "y" | ufw enable
 fi
 
-# Get public IP
+# Figure out my public IP
 PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || echo "your-vps-ip")
 
 echo ""
