@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set up my FRC RAG project on a VPS
-# Run this after uploading everything to /opt/frc-rag
+# Need to run this after uploading everything to /opt/frc-rag
 
 set -e
 
