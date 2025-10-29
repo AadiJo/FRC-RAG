@@ -404,7 +404,20 @@
             try {
                 marked.setOptions({ gfm: true, breaks: true, headerIds: false, mangle: false });
                 const html = marked.parse(text || '');
-                return DOMPurify.sanitize(html);
+                const sanitized = DOMPurify.sanitize(html);
+                
+                // Wrap tables in a scrollable container
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = sanitized;
+                const tables = tempDiv.querySelectorAll('table');
+                tables.forEach(table => {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'table-wrapper';
+                    table.parentNode.insertBefore(wrapper, table);
+                    wrapper.appendChild(table);
+                });
+                
+                return tempDiv.innerHTML;
             } catch (err) {
                 const escaped = (text || '')
                     .replace(/&/g, '&amp;')
@@ -718,6 +731,69 @@
             let metadata = null;
             let hasRenderedVisibleContent = false;
             
+            // Throttle variables for rendering
+            let pendingUpdate = false;
+            let lastUpdateTime = 0;
+            let updateTimeout = null;
+            const UPDATE_INTERVAL = 200; // Update every 200ms max to reduce flicker
+            let tableScrollPositions = [];
+            let isTableInteracting = false;
+            let shouldRunAfterInteraction = false;
+
+            function attachTableInteractionHandlers() {
+                if (!textDiv) return;
+                textDiv.querySelectorAll('.table-wrapper').forEach(wrapper => {
+                    if (wrapper.dataset.interactionBound === 'true') return;
+                    wrapper.dataset.interactionBound = 'true';
+
+                    const startInteraction = () => {
+                        isTableInteracting = true;
+                    };
+                    const endInteraction = () => {
+                        if (!isTableInteracting) return;
+                        isTableInteracting = false;
+                        if (shouldRunAfterInteraction) {
+                            shouldRunAfterInteraction = false;
+                            updateContent(true);
+                        }
+                    };
+
+                    wrapper.addEventListener('pointerdown', startInteraction, { passive: true });
+                    wrapper.addEventListener('pointerup', endInteraction, { passive: true });
+                    wrapper.addEventListener('pointerleave', endInteraction, { passive: true });
+                    wrapper.addEventListener('pointercancel', endInteraction, { passive: true });
+                });
+            }
+            
+            function updateContent(force = false) {
+                if (!textDiv) return;
+                if (!force && isTableInteracting) {
+                    shouldRunAfterInteraction = true;
+                    pendingUpdate = true;
+                    return;
+                }
+
+                // Capture current scroll offsets so we can restore them after re-render
+                const currentWrappers = Array.from(textDiv.querySelectorAll('.table-wrapper'));
+                tableScrollPositions = currentWrappers.map(wrapper => wrapper.scrollLeft);
+
+                // Update content with latest markdown output and cursor
+                textDiv.innerHTML = formatText(currentText) + '<span class="streaming-cursor">|</span>';
+
+                // Restore scroll offsets on the next frame once new elements exist
+                requestAnimationFrame(() => {
+                    const refreshedWrappers = textDiv.querySelectorAll('.table-wrapper');
+                    refreshedWrappers.forEach((wrapper, index) => {
+                        if (typeof tableScrollPositions[index] === 'number') {
+                            wrapper.scrollLeft = tableScrollPositions[index];
+                        }
+                    });
+                });
+
+                pendingUpdate = false;
+                attachTableInteractionHandlers();
+            }
+            
             const eventSource = new EventSource(`/api/query/stream?${new URLSearchParams({})}`);
             
             // Use fetch with streaming for POST
@@ -775,8 +851,27 @@
                                     // Received content chunk - append to message
                                     if (textDiv) {
                                         currentText += data.data;
-                                        // Keep the cursor at the end while streaming
-                                        textDiv.innerHTML = formatText(currentText) + '<span class="streaming-cursor">|</span>';
+                                        
+                                        // Throttle updates to allow smooth scrolling without flicker
+                                        const now = Date.now();
+
+                                        if (updateTimeout) {
+                                            clearTimeout(updateTimeout);
+                                            updateTimeout = null;
+                                        }
+
+                                        if (!pendingUpdate && (now - lastUpdateTime) >= UPDATE_INTERVAL) {
+                                            lastUpdateTime = now;
+                                            updateContent();
+                                        } else {
+                                            pendingUpdate = true;
+                                            const delay = Math.max(0, UPDATE_INTERVAL - (now - lastUpdateTime));
+                                            updateTimeout = setTimeout(() => {
+                                                lastUpdateTime = Date.now();
+                                                updateContent();
+                                                updateTimeout = null;
+                                            }, delay);
+                                        }
                                         
                                         // Hide loading only after visible text is rendered to the screen
                                         if (!hasRenderedVisibleContent) {
@@ -806,6 +901,16 @@
                                 } else if (data.type === 'done') {
                                     // Stream complete - finalize the message
                                     console.log('Response streaming complete');
+                                    if (updateTimeout) {
+                                        clearTimeout(updateTimeout);
+                                        updateTimeout = null;
+                                    }
+                                    
+                                    // Do final update to ensure all content is displayed
+                                    if (pendingUpdate) {
+                                        updateContent(true);
+                                    }
+                                    
                                     if (!hasRenderedVisibleContent) {
                                         hideLoading();
                                     }
