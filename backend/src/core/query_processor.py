@@ -167,7 +167,7 @@ Instructions:
             print(f"Error initializing database: {e}")
             return False
 
-    def process_query(self, query: str, k: int = 5) -> Dict[str, Any]:
+    def process_query(self, query: str, k: int = 15) -> Dict[str, Any]:
         """
         Process a user query with game piece enhancement and caching
         Returns a comprehensive response with context and metadata
@@ -448,7 +448,7 @@ Instructions:
         
         return unique_suggestions[:8]  # Limit to 8 suggestions
 
-    def search_by_season(self, season: str, query: str = "", k: int = 5) -> Dict[str, Any]:
+    def search_by_season(self, season: str, query: str = "", k: int = 15) -> Dict[str, Any]:
         """Search for content from a specific season"""
         if not self.db:
             return {"error": "Database not initialized"}
@@ -526,7 +526,7 @@ Instructions:
             print("✅ Expired cache entries removed")
         else:
             print("⚠️  Cache is disabled")    
-    def prepare_query_metadata(self, query: str, k: int = 5) -> Dict[str, Any]:
+    def prepare_query_metadata(self, query: str, k: int = 15) -> Dict[str, Any]:
         """
         Prepare metadata for a query (images, matched pieces, etc.) without generating the response.
         This is used for streaming to send metadata first.

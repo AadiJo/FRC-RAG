@@ -152,7 +152,7 @@ def api_query():
         if not query_processor:
             return jsonify({"error": "Query processor not initialized"}), 500
         
-        k = data.get('k', 5)
+        k = data.get('k', 15)
         result = query_processor.process_query(query_text, k)
         
         # Log the query (without sensitive data)
@@ -233,7 +233,7 @@ def api_query_stream():
         if not query_processor:
             return jsonify({"error": "Query processor not initialized"}), 500
         
-        k = data.get('k', 5)
+        k = data.get('k', 15)
         
         def generate():
             """Generator function for streaming responses"""

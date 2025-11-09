@@ -62,7 +62,7 @@ class QueryCache:
             'ttl_expirations': 0
         }
     
-    def _generate_query_hash(self, query: str, k: int = 5) -> str:
+    def _generate_query_hash(self, query: str, k: int = 15) -> str:
         """Generate a hash for exact query matching"""
         # Normalize query: lowercase, strip whitespace
         normalized = query.lower().strip()
@@ -97,7 +97,7 @@ class QueryCache:
     def get(
         self, 
         query: str, 
-        k: int = 5,
+        k: int = 15,
         query_embedding: Optional[np.ndarray] = None
     ) -> Optional[Dict[str, Any]]:
         """
@@ -169,7 +169,7 @@ class QueryCache:
         self,
         query: str,
         response_data: Dict[str, Any],
-        k: int = 5,
+        k: int = 15,
         query_embedding: Optional[np.ndarray] = None
     ):
         """
