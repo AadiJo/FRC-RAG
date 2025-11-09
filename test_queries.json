@@ -1,0 +1,107 @@
+{
+  "Design a versatile intake mechanism for the 2024 CRESCENDO season that can handle Note game pieces. The intake must be able to pick up Notes from the ground, accept handoffs from human players at the Source, and work reliably in autonomous mode. Include specific constraints for robot dimensions, motor specifications, and material choices.": {
+    "relevant_chunks": [
+      "intake mechanism design for Note game pieces with roller systems",
+      "ground pickup system for foam ring Notes using conveyor belts",
+      "human player handoff interface at Source station",
+      "autonomous intake operation with sensor feedback",
+      "motor specifications for intake systems using NEO motors",
+      "material choices for intake components including polycarbonate and aluminum"
+    ],
+    "expected_keywords": [
+      "intake", "note", "roller", "belt", "motor", "neo", "ground", 
+      "source", "autonomous", "sensor", "beam break", "foam ring",
+      "polycarbonate", "aluminum", "conveyor", "pneumatic"
+    ]
+  },
+  "How do you design a drivetrain for a 120lb robot that can achieve 15 ft/s top speed using maximum 4 CIM motors and must work on both carpet and concrete surfaces?": {
+    "relevant_chunks": [
+      "drivetrain design calculations for high speed robots",
+      "CIM motor specifications and torque curves",
+      "gear ratio calculations for 15 fps top speed",
+      "weight distribution considerations for 120lb robots",
+      "wheel selection for carpet and concrete surfaces",
+      "transmission options for high-speed drivetrains"
+    ],
+    "expected_keywords": [
+      "drivetrain", "CIM", "motor", "gear", "ratio", "speed", "weight", 
+      "wheels", "gearbox", "transmission", "fps", "ft/s", "carpet",
+      "concrete", "traction", "120lb", "15fps"
+    ]
+  },
+  "What sensors are commonly used in FRC robots for autonomous navigation and how do you integrate AprilTags with odometry?": {
+    "relevant_chunks": [
+      "autonomous navigation sensor systems including gyroscopes",
+      "encoder feedback systems for odometry",
+      "vision camera integration for AprilTag detection",
+      "IMU and gyroscope calibration procedures",
+      "sensor fusion techniques for navigation",
+      "AprilTag positioning and field localization"
+    ],
+    "expected_keywords": [
+      "sensor", "autonomous", "navigation", "gyro", "encoder", "IMU", 
+      "camera", "vision", "apriltag", "odometry", "localization",
+      "fusion", "calibration", "positioning"
+    ]
+  },
+  "Design a shooter mechanism that can score game pieces at different distances with variable angle adjustment using PID control.": {
+    "relevant_chunks": [
+      "shooter mechanism design with flywheel systems",
+      "variable angle adjustment using servo or pneumatic systems",
+      "PID control implementation for shooter consistency",
+      "distance-based shooting calculations and lookup tables",
+      "motor selection for shooter flywheels",
+      "feedback systems for shooter accuracy"
+    ],
+    "expected_keywords": [
+      "shooter", "flywheel", "angle", "adjustment", "PID", "control",
+      "distance", "servo", "pneumatic", "motor", "falcon", "consistency",
+      "accuracy", "feedback", "velocity", "rpm"
+    ]
+  },
+  "How do you implement swerve drive kinematics and what are the advantages over tank drive for FRC competitions?": {
+    "relevant_chunks": [
+      "swerve drive kinematics calculations and implementation",
+      "comparison between swerve and tank drive systems",
+      "advantages of holonomic movement in FRC",
+      "swerve module design and motor requirements",
+      "programming considerations for swerve drive control",
+      "field-oriented driving with swerve systems"
+    ],
+    "expected_keywords": [
+      "swerve", "kinematics", "holonomic", "tank", "drive", "module",
+      "motor", "steering", "field-oriented", "programming", "control",
+      "advantages", "maneuverability", "rotation", "translation"
+    ]
+  },
+  "What materials and manufacturing techniques are recommended for building lightweight yet durable robot chassis in FRC?": {
+    "relevant_chunks": [
+      "chassis material selection including aluminum and composites",
+      "manufacturing techniques for lightweight robot frames",
+      "durability testing and material strength considerations",
+      "welding vs bolted construction methods",
+      "weight reduction strategies for robot chassis",
+      "material costs and availability for FRC teams"
+    ],
+    "expected_keywords": [
+      "chassis", "material", "aluminum", "lightweight", "durable",
+      "manufacturing", "welding", "bolted", "composite", "frame",
+      "weight", "reduction", "strength", "cost", "availability"
+    ]
+  },
+  "How do you design and program an elevator system for reaching high scoring positions while maintaining stability?": {
+    "relevant_chunks": [
+      "elevator system design with cascading or continuous mechanisms",
+      "motor selection and gear ratios for elevator systems",
+      "stability considerations for extended elevator positions",
+      "programming elevator control with limit switches and encoders",
+      "safety features for elevator operation",
+      "material selection for elevator stages and cables"
+    ],
+    "expected_keywords": [
+      "elevator", "cascading", "continuous", "motor", "gear", "stability",
+      "extended", "limit", "switch", "encoder", "safety", "stages",
+      "cable", "rigging", "counterweight", "programming"
+    ]
+  }
+}
