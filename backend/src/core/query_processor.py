@@ -8,6 +8,7 @@ import subprocess
 import time
 import requests
 import numpy as np
+import re
 from typing import List, Dict, Any, Tuple
 from langchain_community.vectorstores import Chroma
 from langchain.prompts import ChatPromptTemplate
@@ -16,15 +17,114 @@ from langchain_community.llms import Ollama
 from .game_piece_mapper import GamePieceMapper
 from ..utils.query_cache import QueryCache, ChunkCache
 
+class SimplePostProcessor:
+    """
+    Lightweight post-processing filter for improving retrieval precision
+    """
+    
+    def __init__(self, min_relevance_score: float = 0.3):
+        self.min_relevance_score = min_relevance_score
+        
+        # FRC-specific keywords for relevance scoring
+        self.high_value_keywords = [
+            'motor', 'gear', 'ratio', 'wheel', 'sensor', 'encoder', 'gyro',
+            'autonomous', 'teleop', 'programming', 'pid', 'control', 'feedback',
+            'intake', 'shooter', 'drivetrain', 'elevator', 'arm', 'chassis',
+            'swerve', 'tank', 'camera', 'vision', 'apriltag', 'pathfinding'
+        ]
+        
+        self.medium_value_keywords = [
+            'design', 'build', 'material', 'aluminum', 'weight', 'strength',
+            'power', 'battery', 'pneumatic', 'mechanical', 'electrical'
+        ]
+    
+    def calculate_relevance_score(self, query: str, document: str) -> float:
+        """Calculate relevance score between query and document"""
+        query_lower = query.lower()
+        doc_lower = document.lower()
+        
+        # Extract words
+        query_words = set(re.findall(r'\b\w+\b', query_lower))
+        doc_words = set(re.findall(r'\b\w+\b', doc_lower))
+        
+        # Calculate keyword overlap
+        overlap = len(query_words.intersection(doc_words))
+        keyword_score = overlap / len(query_words) if query_words else 0
+        
+        # Calculate FRC-specific relevance
+        high_value_matches = sum(1 for kw in self.high_value_keywords if kw in doc_lower)
+        medium_value_matches = sum(1 for kw in self.medium_value_keywords if kw in doc_lower)
+        
+        # Weighted FRC score
+        frc_score = (high_value_matches * 3 + medium_value_matches * 2) / 100
+        
+        # Document length penalty
+        doc_length = len(document.split())
+        length_penalty = 1.0
+        if doc_length < 50:
+            length_penalty = 0.7
+        elif doc_length > 1000:
+            length_penalty = 0.8
+        
+        # Combine scores
+        relevance_score = (keyword_score * 0.5 + frc_score * 0.5) * length_penalty
+        return min(relevance_score, 1.0)
+    
+    def filter_documents(self, query: str, documents: List[str], target_count: int = 10) -> List[str]:
+        """
+        Filter documents based on relevance score
+        
+        Args:
+            query: Search query
+            documents: List of document content strings
+            target_count: Maximum number of documents to return
+            
+        Returns:
+            Filtered list of documents
+        """
+        if not documents:
+            return []
+        
+        # Score all documents
+        scored_docs = []
+        for doc in documents:
+            score = self.calculate_relevance_score(query, doc)
+            if score >= self.min_relevance_score:
+                scored_docs.append((doc, score))
+        
+        # Sort by score (descending) and limit count
+        scored_docs.sort(key=lambda x: x[1], reverse=True)
+        filtered_docs = [doc for doc, score in scored_docs[:target_count]]
+        
+        if scored_docs:
+            avg_score = np.mean([score for _, score in scored_docs])
+            print(f"Post-processing: {len(documents)} -> {len(filtered_docs)} documents (avg score: {avg_score:.3f})")
+        
+        return filtered_docs
+
 class QueryProcessor:
     def __init__(self, chroma_path: str = "db", images_path: str = "data/images", 
-                 enable_cache: bool = True, cache_config: Dict[str, Any] = None):
+                 enable_cache: bool = True, cache_config: Dict[str, Any] = None,
+                 enable_post_processing: bool = True, min_relevance_score: float = 0.3):
         self.chroma_path = chroma_path
         self.images_path = images_path
         self.game_piece_mapper = GamePieceMapper()
         
         # Initialize embedding function
         self.embedding_function = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        
+        # Initialize post-processing filter
+        self.enable_post_processing = enable_post_processing
+        if self.enable_post_processing:
+            try:
+                self.post_processor = SimplePostProcessor(min_relevance_score=min_relevance_score)
+                print("Post-processing filter enabled")
+            except Exception as e:
+                print(f"Warning: Could not initialize post-processor: {e}")
+                self.enable_post_processing = False
+                self.post_processor = None
+        else:
+            self.post_processor = None
         
         # Initialize cache system
         self.enable_cache = enable_cache
@@ -167,13 +267,19 @@ Instructions:
             print(f"Error initializing database: {e}")
             return False
 
-    def process_query(self, query: str, k: int = 15) -> Dict[str, Any]:
+    def process_query(self, query: str, k: int = 10, enable_filtering: bool = None, target_docs: int = 8) -> Dict[str, Any]:
         """
-        Process a user query with game piece enhancement and caching
+        Process a user query with game piece enhancement, caching, and optional post-processing
         Returns a comprehensive response with context and metadata
         """
         if not self.db:
             return {"error": "Database not initialized"}
+        
+        # Determine if we should use filtering - only if explicitly enabled
+        use_filtering = enable_filtering if enable_filtering is not None else False
+        
+        # If using filtering, retrieve more documents initially
+        initial_k = k * 2 if use_filtering and self.post_processor else k
         
         # Check cache first (if enabled)
         if self.enable_cache and self.query_cache:
@@ -184,14 +290,14 @@ Instructions:
             except Exception as e:
                 print(f"Warning: Could not generate query embedding for cache: {e}")
             
-            # Try to get cached response
+            # Try to get cached response (use original k for cache key)
             cached_response = self.query_cache.get(query, k, query_embedding)
             if cached_response is not None:
-                print(f"✅ Cache hit ({cached_response.get('_cache_type', 'unknown')})")
+                print(f"Cache hit ({cached_response.get('_cache_type', 'unknown')})")
                 return cached_response
         
         # Cache miss - process query normally
-        print("🔍 Processing new query (cache miss)")
+        print("Processing new query (cache miss)")
         
         # Step 1: Analyze query for game pieces
         matched_pieces, enhanced_query = self.game_piece_mapper.enhance_query(query)
@@ -206,7 +312,7 @@ Instructions:
         if not enhanced_query.strip():
             enhanced_query = query
         
-        # Step 2: Search database with enhanced query (with chunk caching)
+        # Step 2: Search database with enhanced query (using initial_k)
         try:
             # Generate embedding for the enhanced query
             enhanced_embedding = None
@@ -214,21 +320,21 @@ Instructions:
                 try:
                     enhanced_embedding = np.array(self.embedding_function.embed_query(enhanced_query))
                     
-                    # Try to get cached chunks
-                    cached_chunks = self.chunk_cache.get(enhanced_embedding, k)
+                    # Try to get cached chunks (use initial_k for caching)
+                    cached_chunks = self.chunk_cache.get(enhanced_embedding, initial_k)
                     if cached_chunks is not None:
-                        print(f"✅ Chunk cache hit")
+                        print(f"Chunk cache hit")
                         results = cached_chunks
                     else:
                         # Perform similarity search
-                        results = self.db.similarity_search(enhanced_query, k=k)
+                        results = self.db.similarity_search(enhanced_query, k=initial_k)
                         # Cache the chunks
-                        self.chunk_cache.set(enhanced_embedding, k, results)
+                        self.chunk_cache.set(enhanced_embedding, initial_k, results)
                 except Exception as e:
                     print(f"Warning: Chunk cache error: {e}")
-                    results = self.db.similarity_search(enhanced_query, k=k)
+                    results = self.db.similarity_search(enhanced_query, k=initial_k)
             else:
-                results = self.db.similarity_search(enhanced_query, k=k)
+                results = self.db.similarity_search(enhanced_query, k=initial_k)
         except Exception as e:
             return {"error": f"Search failed: {e}"}
         
@@ -253,12 +359,41 @@ Instructions:
             
             return response
         
-        # Step 3: Collect related images and prepare context
-        related_images = []
-        context_parts = []
+        # Step 3: Collect context parts and apply post-processing filtering
+        context_parts = [doc.page_content for doc in results]
         
+        # Apply post-processing filter if enabled
+        if use_filtering and self.post_processor:
+            filtered_context_parts = self.post_processor.filter_documents(
+                query=query,
+                documents=context_parts,
+                target_count=target_docs
+            )
+            
+            # If filtering removed everything, fall back to original (take top k)
+            if not filtered_context_parts:
+                print("Warning: All documents filtered out, using original top k results")
+                filtered_context_parts = context_parts[:k]
+            
+            # Update context_parts and results to match filtered content
+            context_parts = filtered_context_parts
+            
+            # Update results list to match filtered context (for image collection)
+            filtered_results = []
+            for filtered_content in filtered_context_parts:
+                for doc in results:
+                    if doc.page_content == filtered_content:
+                        filtered_results.append(doc)
+                        break
+            results = filtered_results
+        else:
+            # No filtering, just limit to original k
+            context_parts = context_parts[:k]
+            results = results[:k]
+        
+        # Step 4: Collect related images from filtered results
+        related_images = []
         for doc in results:
-            context_parts.append(doc.page_content)
             images = self._collect_images_from_result(doc)
             related_images.extend(images)
         
@@ -270,12 +405,12 @@ Instructions:
                 unique_images.append(img)
                 seen_filenames.add(img['filename'])
         
-        # Step 4: Generate game piece context
+        # Step 5: Generate game piece context
         game_piece_context = ""
         if matched_pieces:
             game_piece_context = self.game_piece_mapper.get_context_for_pieces(matched_pieces)
 
-        # Step 5: Generate AI response
+        # Step 6: Generate AI response using filtered context
         context_text = "\n\n---\n\n".join(context_parts)
         
         try:
@@ -300,17 +435,23 @@ Instructions:
             "matched_pieces": matched_pieces,
             "enhanced_query": enhanced_query,
             "original_query": query,
-            "context_sources": len(results),
+            "context_sources": len(context_parts),  # Use filtered count
             "related_images": unique_images,
             "game_piece_context": game_piece_context
         }
         
-        # Cache the response
+        # Add post-processing information if applied
+        if use_filtering and self.post_processor:
+            response["post_processing_applied"] = True
+            response["initial_doc_count"] = initial_k
+            response["filtered_doc_count"] = len(context_parts)
+        
+        # Cache the response (with original k as cache key)
         if self.enable_cache and self.query_cache:
             try:
                 query_embedding = np.array(self.embedding_function.embed_query(query))
                 self.query_cache.set(query, response, k, query_embedding)
-                print("✅ Response cached")
+                print("Response cached")
             except Exception as e:
                 print(f"Warning: Could not cache response: {e}")
         
@@ -448,7 +589,7 @@ Instructions:
         
         return unique_suggestions[:8]  # Limit to 8 suggestions
 
-    def search_by_season(self, season: str, query: str = "", k: int = 15) -> Dict[str, Any]:
+    def search_by_season(self, season: str, query: str = "", k: int = 10) -> Dict[str, Any]:
         """Search for content from a specific season"""
         if not self.db:
             return {"error": "Database not initialized"}
@@ -526,10 +667,15 @@ Instructions:
             print("✅ Expired cache entries removed")
         else:
             print("⚠️  Cache is disabled")    
-    def prepare_query_metadata(self, query: str, k: int = 15) -> Dict[str, Any]:
+    def prepare_query_metadata(self, query: str, k: int = 10, enable_filtering: bool = None) -> Dict[str, Any]:
         """
         Prepare metadata for a query (images, matched pieces, etc.) without generating the response.
         This is used for streaming to send metadata first.
+        
+        Args:
+            query: The query string
+            k: Number of documents to retrieve
+            enable_filtering: Whether to enable post-processing filtering (None = use default)
         """
         # Step 1: Enhance query with game piece context
         matched_pieces, enhanced_query = self.game_piece_mapper.enhance_query(query)
@@ -553,12 +699,30 @@ Instructions:
                     if cached_chunks is not None:
                         results = cached_chunks
                     else:
-                        results = self.db.similarity_search(enhanced_query, k=k)
+                        # Use k*2 to get more results for filtering
+                        search_k = k * 2 if enable_filtering else k
+                        results = self.db.similarity_search(enhanced_query, k=search_k)
                         self.chunk_cache.set(enhanced_embedding, k, results)
                 except Exception as e:
-                    results = self.db.similarity_search(enhanced_query, k=k)
+                    search_k = k * 2 if enable_filtering else k
+                    results = self.db.similarity_search(enhanced_query, k=search_k)
             else:
-                results = self.db.similarity_search(enhanced_query, k=k)
+                search_k = k * 2 if enable_filtering else k
+                results = self.db.similarity_search(enhanced_query, k=search_k)
+                
+            # Apply post-processing filtering if enabled
+            if enable_filtering and hasattr(self, 'post_processor') and self.post_processor:
+                filtered_results = self.post_processor.filter_documents(results, enhanced_query)
+                
+                if len(filtered_results) >= k:
+                    results = filtered_results[:k]
+                    print(f"Post-processing: {len(results)} -> {len(filtered_results[:k])} documents (avg score: {np.mean([self.post_processor._calculate_relevance_score(doc.page_content, enhanced_query) for doc in filtered_results[:k]]):.3f})")
+                else:
+                    print(f"Warning: Filtering returned {len(filtered_results)} docs, keeping original top {k}")
+                    results = results[:k]
+            else:
+                results = results[:k]
+                
         except Exception as e:
             return {"error": f"Search failed: {e}"}
         

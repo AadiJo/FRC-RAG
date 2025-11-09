@@ -182,7 +182,7 @@ class RAGEvaluator:
             'avg_context_relevance': np.mean(context_scores) if context_scores else 0.0
         }
     
-    def evaluate_single_query(self, query: str, ground_truth: Dict[str, Any], k: int = 15) -> Dict[str, Any]:
+    def evaluate_single_query(self, query: str, ground_truth: Dict[str, Any], k: int = 15, enable_filtering: bool = None) -> Dict[str, Any]:
         """
         Evaluate a single query against ground truth
         
@@ -190,14 +190,26 @@ class RAGEvaluator:
             query: The query string
             ground_truth: Dict containing 'relevant_chunks' and 'expected_keywords'
             k: Number of top results to evaluate
+            enable_filtering: Whether to enable post-processing filtering
             
         Returns:
             Dict with evaluation metrics
         """
         start_time = time.time()
         
-        # Get query results
-        result = self.query_processor.process_query(query, k)
+        # Temporarily disable cache to ensure fresh results for filtering comparison
+        original_cache_state = self.query_processor.enable_cache
+        self.query_processor.enable_cache = False
+        
+        try:
+            # Get query results with optional filtering
+            if enable_filtering is not None:
+                result = self.query_processor.process_query(query, k, enable_filtering=enable_filtering)
+            else:
+                result = self.query_processor.process_query(query, k)
+        finally:
+            # Restore cache state
+            self.query_processor.enable_cache = original_cache_state
         
         retrieval_time = time.time() - start_time
         
@@ -205,7 +217,9 @@ class RAGEvaluator:
             return {
                 'query': query,
                 'error': result["error"],
-                'retrieval_time': retrieval_time
+                'retrieval_time': retrieval_time,
+                'k': k,
+                'filtering_enabled': enable_filtering
             }
         
         # Extract document results for evaluation
@@ -264,6 +278,7 @@ class RAGEvaluator:
         return {
             'query': query,
             'k': k,
+            'filtering_enabled': enable_filtering,
             'retrieval_time': retrieval_time,
             'hit_rate_at_k': hit_rate,
             'precision_at_k': precision,
@@ -272,77 +287,109 @@ class RAGEvaluator:
             'documents_retrieved': len(retrieved_docs),
             'context_sources': result.get('context_sources', 0),
             'debug_info': debug_info,
+            'post_processing_applied': result.get('post_processing_applied', False),
+            'initial_doc_count': result.get('initial_doc_count', 0),
+            'filtered_doc_count': result.get('filtered_doc_count', 0),
             **image_metrics,
             'enhanced_query': result.get('enhanced_query', query),
             'matched_pieces': result.get('matched_pieces', [])
         }
     
-    def evaluate_test_set(self, test_queries: Dict[str, Dict], k_values: List[int] = None) -> Dict[str, Any]:
+    def evaluate_test_set(self, test_queries: Dict[str, Dict], k_values: List[int] = None, test_filtering: bool = True) -> Dict[str, Any]:
         """
         Evaluate multiple queries and calculate average metrics
         
         Args:
             test_queries: Dict mapping query strings to ground truth data
             k_values: List of k values to evaluate (default: [5, 10, 15, 20])
+            test_filtering: Whether to test both with and without post-processing
             
         Returns:
             Comprehensive evaluation results
         """
         if k_values is None:
-            k_values = [5, 10, 15, 20]
+            k_values = [10, 15, 20, 25]
         
         results = {
             'individual_results': {},
             'aggregate_metrics': {},
             'k_values': k_values,
-            'total_queries': len(test_queries)
+            'total_queries': len(test_queries),
+            'filtering_tested': test_filtering
         }
         
-        for k in k_values:
-            print(f"\nEvaluating with k={k}...")
-            
-            query_results = []
-            
-            for query, ground_truth in test_queries.items():
-                print(f"  Evaluating: {query[:60]}...")
+        # Test configurations
+        test_configs = [
+            {'filtering': False, 'label': 'No Filtering'},
+            {'filtering': True, 'label': 'With Filtering'}
+        ] if test_filtering else [{'filtering': False, 'label': 'Default'}]
+        
+        for config in test_configs:
+            for k in k_values:
+                config_key = f"k_{k}_{config['label'].lower().replace(' ', '_')}"
+                print(f"\nEvaluating with k={k}, {config['label']}...")
                 
-                query_result = self.evaluate_single_query(query, ground_truth, k)
-                query_results.append(query_result)
+                query_results = []
                 
-                # Store individual result
-                if query not in results['individual_results']:
-                    results['individual_results'][query] = {}
-                results['individual_results'][query][f'k_{k}'] = query_result
-            
-            # Calculate aggregate metrics for this k
-            valid_results = [r for r in query_results if 'error' not in r]
-            
-            if valid_results:
-                aggregate = {
-                    'avg_hit_rate': np.mean([r['hit_rate_at_k'] for r in valid_results]),
-                    'avg_precision': np.mean([r['precision_at_k'] for r in valid_results]),
-                    'avg_recall': np.mean([r['recall_at_k'] for r in valid_results]),
-                    'avg_f1': np.mean([r['f1_at_k'] for r in valid_results]),
-                    'avg_retrieval_time': np.mean([r['retrieval_time'] for r in valid_results]),
-                    'avg_documents_retrieved': np.mean([r['documents_retrieved'] for r in valid_results]),
-                    'avg_image_count': np.mean([r['image_count'] for r in valid_results]),
-                    'avg_relevant_images': np.mean([r['relevant_images'] for r in valid_results]),
-                    'avg_image_relevance_rate': np.mean([r['image_relevance_rate'] for r in valid_results]),
-                    'avg_context_relevance': np.mean([r['avg_context_relevance'] for r in valid_results]),
-                    'successful_queries': len(valid_results),
-                    'failed_queries': len(query_results) - len(valid_results)
-                }
+                for query, ground_truth in test_queries.items():
+                    print(f"  Evaluating: {query[:60]}...")
+                    
+                    query_result = self.evaluate_single_query(
+                        query, ground_truth, k, enable_filtering=config['filtering']
+                    )
+                    query_results.append(query_result)
+                    
+                    # Store individual result
+                    if query not in results['individual_results']:
+                        results['individual_results'][query] = {}
+                    results['individual_results'][query][config_key] = query_result
                 
-                results['aggregate_metrics'][f'k_{k}'] = aggregate
+                # Calculate aggregate metrics for this configuration
+                valid_results = [r for r in query_results if 'error' not in r]
                 
-                # Print summary for this k
-                print(f"    Hit Rate@{k}: {aggregate['avg_hit_rate']:.3f}")
-                print(f"    Precision@{k}: {aggregate['avg_precision']:.3f}")
-                print(f"    Recall@{k}: {aggregate['avg_recall']:.3f}")
-                print(f"    F1@{k}: {aggregate['avg_f1']:.3f}")
-                print(f"    Avg Images: {aggregate['avg_image_count']:.1f}")
-                print(f"    Image Relevance: {aggregate['avg_image_relevance_rate']:.3f}")
-                print(f"    Avg Time: {aggregate['avg_retrieval_time']:.2f}s")
+                if valid_results:
+                    aggregate = {
+                        'config': config['label'],
+                        'k': k,
+                        'filtering_enabled': config['filtering'],
+                        'avg_hit_rate': np.mean([r['hit_rate_at_k'] for r in valid_results]),
+                        'avg_precision': np.mean([r['precision_at_k'] for r in valid_results]),
+                        'avg_recall': np.mean([r['recall_at_k'] for r in valid_results]),
+                        'avg_f1': np.mean([r['f1_at_k'] for r in valid_results]),
+                        'avg_retrieval_time': np.mean([r['retrieval_time'] for r in valid_results]),
+                        'avg_documents_retrieved': np.mean([r['documents_retrieved'] for r in valid_results]),
+                        'avg_image_count': np.mean([r['image_count'] for r in valid_results]),
+                        'avg_relevant_images': np.mean([r['relevant_images'] for r in valid_results]),
+                        'avg_image_relevance_rate': np.mean([r['image_relevance_rate'] for r in valid_results]),
+                        'avg_context_relevance': np.mean([r['avg_context_relevance'] for r in valid_results]),
+                        'successful_queries': len(valid_results),
+                        'failed_queries': len(query_results) - len(valid_results)
+                    }
+                    
+                    # Add post-processing specific metrics
+                    if config['filtering']:
+                        post_processed = [r for r in valid_results if r.get('post_processing_applied', False)]
+                        if post_processed:
+                            aggregate['avg_initial_docs'] = np.mean([r.get('initial_doc_count', 0) for r in post_processed])
+                            aggregate['avg_filtered_docs'] = np.mean([r.get('filtered_doc_count', 0) for r in post_processed])
+                            aggregate['avg_reduction_rate'] = np.mean([
+                                1 - (r.get('filtered_doc_count', 0) / r.get('initial_doc_count', 1))
+                                for r in post_processed if r.get('initial_doc_count', 0) > 0
+                            ])
+                    
+                    results['aggregate_metrics'][config_key] = aggregate
+                    
+                    # Print summary for this configuration
+                    print(f"    Hit Rate@{k}: {aggregate['avg_hit_rate']:.3f}")
+                    print(f"    Precision@{k}: {aggregate['avg_precision']:.3f}")
+                    print(f"    Recall@{k}: {aggregate['avg_recall']:.3f}")
+                    print(f"    F1@{k}: {aggregate['avg_f1']:.3f}")
+                    print(f"    Avg Images: {aggregate['avg_image_count']:.1f}")
+                    print(f"    Image Relevance: {aggregate['avg_image_relevance_rate']:.3f}")
+                    print(f"    Avg Time: {aggregate['avg_retrieval_time']:.2f}s")
+                    
+                    if config['filtering'] and 'avg_reduction_rate' in aggregate:
+                        print(f"    Doc Reduction: {aggregate['avg_reduction_rate']*100:.1f}%")
         
         return results
     
@@ -358,18 +405,25 @@ class RAGEvaluator:
     
     def print_summary_report(self, results: Dict[str, Any]):
         """Print a formatted summary report"""
-        print("\n" + "="*70)
+        print("\n" + "="*80)
         print("FRC RAG EVALUATION SUMMARY REPORT")
-        print("="*70)
+        print("="*80)
         
         total_queries = results['total_queries']
         k_values = results['k_values']
+        filtering_tested = results.get('filtering_tested', False)
         
         print(f"\nTest Set: {total_queries} queries evaluated")
         print(f"K values tested: {k_values}")
+        print(f"Post-processing filtering: {'Tested' if filtering_tested else 'Not tested'}")
         
-        print(f"\n{'Metric':<25} " + " ".join([f"k={k:<4}" for k in k_values]))
-        print("-" * 70)
+        if filtering_tested:
+            print(f"\n{'Metric':<25} " + " ".join([f"k={k:<4}" for k in k_values]) + 
+                  f"  |  " + " ".join([f"k={k}+F" for k in k_values]))
+            print("-" * 80)
+        else:
+            print(f"\n{'Metric':<25} " + " ".join([f"k={k:<4}" for k in k_values]))
+            print("-" * 80)
         
         metrics = ['avg_hit_rate', 'avg_precision', 'avg_recall', 'avg_f1', 
                   'avg_image_relevance_rate', 'avg_retrieval_time']
@@ -378,33 +432,73 @@ class RAGEvaluator:
         
         for metric, name in zip(metrics, metric_names):
             row = f"{name:<25}"
+            
+            # Add no-filtering results
             for k in k_values:
-                k_key = f'k_{k}'
-                if k_key in results['aggregate_metrics']:
-                    value = results['aggregate_metrics'][k_key][metric]
+                no_filter_key = f'k_{k}_no_filtering'
+                if no_filter_key in results['aggregate_metrics']:
+                    value = results['aggregate_metrics'][no_filter_key][metric]
                     if metric == 'avg_retrieval_time':
                         row += f" {value:>6.2f}"
                     else:
                         row += f" {value:>6.3f}"
                 else:
                     row += f" {'N/A':>6}"
+            
+            # Add filtering results if tested
+            if filtering_tested:
+                row += "  |  "
+                for k in k_values:
+                    filter_key = f'k_{k}_with_filtering'
+                    if filter_key in results['aggregate_metrics']:
+                        value = results['aggregate_metrics'][filter_key][metric]
+                        if metric == 'avg_retrieval_time':
+                            row += f" {value:>6.2f}"
+                        else:
+                            row += f" {value:>6.3f}"
+                    else:
+                        row += f" {'N/A':>6}"
+            
             print(row)
         
-        # Find best performing k
-        best_k = None
-        best_f1 = 0
-        for k in k_values:
-            k_key = f'k_{k}'
-            if k_key in results['aggregate_metrics']:
-                f1 = results['aggregate_metrics'][k_key]['avg_f1']
-                if f1 > best_f1:
-                    best_f1 = f1
-                    best_k = k
+        # Find best performing configurations
+        best_no_filter = None
+        best_filter = None
+        best_no_filter_f1 = 0
+        best_filter_f1 = 0
         
-        if best_k:
-            print(f"\nBest performing configuration: k={best_k} (F1: {best_f1:.3f})")
+        for config_key, metrics_data in results['aggregate_metrics'].items():
+            f1 = metrics_data['avg_f1']
+            if 'no_filtering' in config_key and f1 > best_no_filter_f1:
+                best_no_filter_f1 = f1
+                best_no_filter = (metrics_data['k'], f1)
+            elif 'with_filtering' in config_key and f1 > best_filter_f1:
+                best_filter_f1 = f1
+                best_filter = (metrics_data['k'], f1)
         
-        print("\n" + "="*70)
+        print(f"\nBest Configurations:")
+        if best_no_filter:
+            print(f"  Without filtering: k={best_no_filter[0]} (F1: {best_no_filter[1]:.3f})")
+        if best_filter:
+            print(f"  With filtering: k={best_filter[0]} (F1: {best_filter[1]:.3f})")
+            
+            # Calculate improvement
+            if best_no_filter:
+                improvement = ((best_filter[1] - best_no_filter[1]) / best_no_filter[1]) * 100
+                print(f"  Filtering improvement: {improvement:+.1f}%")
+        
+        # Show post-processing statistics
+        if filtering_tested:
+            print(f"\nPost-Processing Statistics:")
+            for k in k_values:
+                filter_key = f'k_{k}_with_filtering'
+                if filter_key in results['aggregate_metrics']:
+                    data = results['aggregate_metrics'][filter_key]
+                    if 'avg_reduction_rate' in data:
+                        print(f"  k={k}: {data['avg_initial_docs']:.1f} -> {data['avg_filtered_docs']:.1f} docs "
+                              f"({data['avg_reduction_rate']*100:.1f}% reduction)")
+        
+        print("\n" + "="*80)
 
 def load_test_queries(file_path: str) -> Dict[str, Dict]:
     """Load test queries from JSON file"""
@@ -458,13 +552,19 @@ def create_default_test_queries() -> Dict[str, Dict]:
 
 def main():
     parser = argparse.ArgumentParser(description='Evaluate FRC RAG Pipeline Performance')
-    parser.add_argument('--k', type=int, nargs='+', default=[5, 10, 15, 20],
-                       help='K values to evaluate (default: 5 10 15 20)')
+    parser.add_argument('--k', type=int, nargs='+', default=[10, 15, 20, 25],
+                       help='K values to evaluate (default: 10 15 20 25)')
     parser.add_argument('--test-queries', type=str, default='test_queries.json',
                        help='Path to test queries JSON file')
     parser.add_argument('--output', type=str, default='evaluation_results.json',
                        help='Output file for results')
     parser.add_argument('--config', type=str, help='Path to config file')
+    parser.add_argument('--no-filtering-test', action='store_true',
+                       help='Skip testing post-processing filtering')
+    parser.add_argument('--enable-post-processing', action='store_true', default=True,
+                       help='Enable post-processing in QueryProcessor')
+    parser.add_argument('--min-relevance-score', type=float, default=0.3,
+                       help='Minimum relevance score for post-processing')
     
     args = parser.parse_args()
     
@@ -473,8 +573,19 @@ def main():
     # Initialize system
     try:
         Config = get_config()
-        query_processor = QueryProcessor(Config.CHROMA_PATH, Config.IMAGES_PATH)
+        query_processor = QueryProcessor(
+            Config.CHROMA_PATH, 
+            Config.IMAGES_PATH,
+            enable_post_processing=args.enable_post_processing,
+            min_relevance_score=args.min_relevance_score
+        )
         print("Query processor initialized successfully")
+        
+        if args.enable_post_processing:
+            print(f"Post-processing enabled with min_relevance_score={args.min_relevance_score}")
+        else:
+            print("Post-processing disabled")
+            
     except Exception as e:
         print(f"Error initializing query processor: {e}")
         return 1
@@ -488,7 +599,14 @@ def main():
     
     # Run evaluation
     print(f"Evaluating with k values: {args.k}")
-    results = evaluator.evaluate_test_set(test_queries, args.k)
+    test_filtering = not args.no_filtering_test and args.enable_post_processing
+    
+    if test_filtering:
+        print("Testing both with and without post-processing filtering")
+    else:
+        print("Testing without post-processing filtering only")
+    
+    results = evaluator.evaluate_test_set(test_queries, args.k, test_filtering=test_filtering)
     
     # Print summary
     evaluator.print_summary_report(results)

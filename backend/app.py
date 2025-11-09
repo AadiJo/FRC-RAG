@@ -152,8 +152,9 @@ def api_query():
         if not query_processor:
             return jsonify({"error": "Query processor not initialized"}), 500
         
-        k = data.get('k', 15)
-        result = query_processor.process_query(query_text, k)
+        k = data.get('k', 10)
+        enable_filtering = data.get('enable_filtering', False)  # Only enable if requested
+        result = query_processor.process_query(query_text, k, enable_filtering=enable_filtering)
         
         # Log the query (without sensitive data)
         logger.info(f"Query processed for client {client_id}: {len(query_text)} chars")
@@ -233,13 +234,14 @@ def api_query_stream():
         if not query_processor:
             return jsonify({"error": "Query processor not initialized"}), 500
         
-        k = data.get('k', 15)
+        k = data.get('k', 10)
         
         def generate():
             """Generator function for streaming responses"""
             try:
                 # First, send metadata (images, matched pieces, etc.)
-                metadata = query_processor.prepare_query_metadata(query_text, k)
+                enable_filtering = data.get('enable_filtering', False)  # Only enable if requested
+                metadata = query_processor.prepare_query_metadata(query_text, k, enable_filtering=enable_filtering)
                 
                 if "error" in metadata:
                     yield f"data: {json.dumps({'error': metadata['error']})}\n\n"
