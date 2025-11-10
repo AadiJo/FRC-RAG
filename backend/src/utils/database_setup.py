@@ -13,6 +13,7 @@ from functools import partial
 import multiprocessing as mp
 import time
 from xml.sax.saxutils import escape
+import re
 
 from langchain.schema import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -100,6 +101,297 @@ CAPTIONING_ENABLED = True  # Set to False to disable image captioning
 CAPTIONING_MODEL_ID = "Salesforce/blip-image-captioning-large"
 captioning_processor = None
 captioning_model = None
+
+
+# ========================================================================
+# ENHANCED CONTEXT EXTRACTION FUNCTIONS
+# ========================================================================
+
+def extract_enhanced_text_structure(page) -> Dict[str, Any]:
+    """
+    Extract text with better structure preservation using multiple methods
+    """
+    results = {
+        "structured_content": "",
+        "bullet_points": [],
+        "headers": [],
+        "technical_specs": [],
+        "layout_preserved": False
+    }
+    
+    try:
+        # Method 1: Extract text blocks with positioning
+        blocks = page.get_text("dict")
+        sorted_blocks = []
+        
+        for block in blocks["blocks"]:
+            if block["type"] == 0:  # Text block
+                block_text = ""
+                for line in block["lines"]:
+                    line_text = ""
+                    for span in line["spans"]:
+                        line_text += span["text"]
+                    if line_text.strip():
+                        block_text += line_text + "\n"
+                
+                if block_text.strip():
+                    sorted_blocks.append({
+                        "text": block_text.strip(),
+                        "bbox": block["bbox"],  # [x0, y0, x1, y1]
+                        "position": (block["bbox"][1], block["bbox"][0])  # (y, x) for sorting
+                    })
+        
+        # Sort blocks by position (top to bottom, left to right)
+        sorted_blocks.sort(key=lambda x: (x["position"][0], x["position"][1]))
+        
+        # Process each block for structure
+        structured_parts = []
+        for block in sorted_blocks:
+            text = block["text"]
+            
+            # Detect headers (ALL CAPS or specific patterns)
+            if detect_header(text):
+                results["headers"].append(text)
+                structured_parts.append(f"## {text}")
+                
+            # Detect bullet points and lists
+            elif detect_list_item(text):
+                results["bullet_points"].append(text)
+                structured_parts.append(f"• {text}")
+                
+            # Detect technical specifications
+            elif detect_technical_spec(text):
+                results["technical_specs"].append(text)
+                structured_parts.append(f"SPEC: {text}")
+                
+            else:
+                structured_parts.append(text)
+        
+        results["structured_content"] = "\n".join(structured_parts)
+        results["layout_preserved"] = True
+        
+        # Method 2: Fallback to regular extraction if positioning fails
+        if not results["structured_content"].strip():
+            results["structured_content"] = page.get_text()
+            results["layout_preserved"] = False
+            
+    except Exception as e:
+        print(f"Warning: Enhanced extraction failed: {e}")
+        results["structured_content"] = page.get_text()
+        results["layout_preserved"] = False
+    
+    return results
+
+def detect_header(text: str) -> bool:
+    """Detect header text patterns"""
+    text = text.strip()
+    
+    # Common header patterns in FRC docs
+    header_patterns = [
+        r'^[A-Z][A-Z\s]{3,}$',  # ALL CAPS headers
+        r'^[A-Z][A-Za-z\s]+:$',  # Title case with colon
+        r'^\d+\.\s*[A-Z]',       # Numbered headers
+    ]
+    
+    # Short, distinctive text is likely a header
+    if len(text) < 100 and any(re.match(pattern, text) for pattern in header_patterns):
+        return True
+        
+    # Single line, all caps
+    if '\n' not in text and text.isupper() and 3 <= len(text) <= 50:
+        return True
+    
+    return False
+
+def detect_list_item(text: str) -> bool:
+    """Detect list items and bullet points"""
+    text = text.strip()
+    
+    # Look for bullet-like patterns at the start
+    bullet_patterns = [
+        r'^\s*[•·▪▫‣⁃]\s+',           # Unicode bullets
+        r'^\s*[-*+]\s+',               # ASCII bullets
+        r'^\s*\d+[\.)]\s+',            # Numbered lists
+        r'^\s*[a-zA-Z][\.)]\s+',       # Lettered lists
+        r'^Built with\s+',              # Technical specs starting with "Built with"
+        r'^\d+[\-\s]stage\s+',         # Multi-stage descriptions
+        r'^Casca[ded|ding]',           # Specific robotics terms
+        r'^Tube\s+',                   # Component descriptions
+        r'^Main\s+structure',          # Structure descriptions
+        r'^Structure\s+is',            # Structure descriptions
+    ]
+    
+    return any(re.match(pattern, text, re.IGNORECASE) for pattern in bullet_patterns)
+
+def detect_technical_spec(text: str) -> bool:
+    """Detect technical specifications"""
+    text = text.lower()
+    
+    # Technical specification keywords
+    tech_keywords = [
+        'aluminum', 'steel', 'motor', 'gear', 'ratio', 'tube', 'bearing',
+        'shaft', 'wheel', 'encoder', 'sensor', 'pneumatic', 'hydraulic',
+        'voltage', 'current', 'torque', 'speed', 'diameter', 'thickness',
+        'weight', 'cg', 'center of gravity', 'rigging', 'trusses'
+    ]
+    
+    # Measurement patterns
+    measurement_patterns = [
+        r'\d+["\']\s*x\s*\d+["\']\s*',  # Dimensions like 2" x 1"
+        r'\d+\s*(inch|in|mm|cm|ft)',     # Measurements
+        r'\d+:\d+',                      # Ratios
+        r'\d+\s*(lb|kg|oz)',            # Weights
+        r'\d+\s*(rpm|fps|mph)',         # Speeds
+    ]
+    
+    # Check for technical keywords
+    keyword_count = sum(1 for keyword in tech_keywords if keyword in text)
+    
+    # Check for measurement patterns
+    measurement_found = any(re.search(pattern, text) for pattern in measurement_patterns)
+    
+    return keyword_count >= 2 or measurement_found
+
+def create_enhanced_document_content(page_text_structure: Dict[str, Any], 
+                                   page_num: int, 
+                                   image_info: List[Dict[str, Any]], 
+                                   pdf_name: str) -> str:
+    """
+    Create enhanced document content that preserves context and relationships
+    """
+    content_parts = []
+    
+    # Document metadata
+    content_parts.append(f"=== DOCUMENT: {pdf_name} | PAGE: {page_num + 1} ===")
+    
+    # Add headers as primary structure
+    if page_text_structure["headers"]:
+        content_parts.append("\n📋 PRIMARY SECTIONS:")
+        for header in page_text_structure["headers"]:
+            content_parts.append(f"▸ {header}")
+    
+    # Add bullet points/list items as structured content
+    if page_text_structure["bullet_points"]:
+        content_parts.append("\n🔧 DETAILED SPECIFICATIONS:")
+        for i, bullet in enumerate(page_text_structure["bullet_points"], 1):
+            content_parts.append(f"{i}. {bullet}")
+    
+    # Add technical specifications
+    if page_text_structure["technical_specs"]:
+        content_parts.append("\n⚙️ TECHNICAL DETAILS:")
+        for spec in page_text_structure["technical_specs"]:
+            content_parts.append(f"• {spec}")
+    
+    # Add full structured content
+    content_parts.append("\n📄 COMPLETE CONTENT:")
+    content_parts.append(page_text_structure["structured_content"])
+    
+    # Add image context with better relationship mapping
+    if image_info:
+        content_parts.append("\n🖼️ ASSOCIATED VISUAL CONTENT:")
+        for img in image_info:
+            img_text = img.get("ocr_text", "").strip()
+            if img_text and len(img_text) > 10:
+                content_parts.append(f"📷 {img['filename']}: {img_text}")
+            else:
+                # For images without OCR text, try to relate them to the page content
+                content_parts.append(f"📷 {img['filename']}: [Technical diagram showing components described above]")
+                
+                # Try to infer relationships based on proximity and content
+                if any(keyword in page_text_structure["structured_content"].lower() 
+                      for keyword in ['elevator', 'lift', 'vertical']):
+                    content_parts.append(f"   → Likely shows: Elevator mechanism and components")
+                elif any(keyword in page_text_structure["structured_content"].lower() 
+                        for keyword in ['drive', 'wheel', 'motion']):
+                    content_parts.append(f"   → Likely shows: Drivetrain components and assembly")
+                elif any(keyword in page_text_structure["structured_content"].lower() 
+                        for keyword in ['intake', 'gripper', 'pickup']):
+                    content_parts.append(f"   → Likely shows: Intake mechanism design")
+    
+    # Add context preservation note
+    layout_status = "✅ Layout preserved" if page_text_structure["layout_preserved"] else "⚠️ Basic extraction"
+    content_parts.append(f"\n📊 Extraction quality: {layout_status}")
+    
+    return "\n".join(content_parts)
+
+def create_enhanced_image_context(img_info: Dict[str, Any], pdf_name: str, page_num: int, 
+                                page_structure: Dict[str, Any], context_excerpt: str) -> str:
+    """
+    Create much richer image context using page structure information
+    """
+    image_text = (img_info.get("ocr_text") or "").strip()
+    filename = img_info.get("filename", "Unknown")
+    
+    context_parts = [
+        f"📄 **DOCUMENT**: {pdf_name} | Page {page_num + 1}",
+        f"🖼️ **IMAGE**: {filename}",
+        ""
+    ]
+    
+    # Add page headers for context
+    if page_structure.get("headers"):
+        context_parts.append("📋 **PAGE SECTIONS**:")
+        for header in page_structure["headers"][:3]:  # Top 3 headers
+            context_parts.append(f"  ▸ {header}")
+        context_parts.append("")
+    
+    # Add extracted image text
+    if image_text and len(image_text) > 10:
+        context_parts.extend([
+            "🔍 **EXTRACTED TEXT**:",
+            image_text,
+            ""
+        ])
+    
+    # Add related specifications
+    if page_structure.get("bullet_points"):
+        context_parts.append("🔧 **RELATED SPECIFICATIONS**:")
+        for spec in page_structure["bullet_points"][:3]:  # Top 3 most relevant specs
+            # Truncate long specs
+            spec_text = spec if len(spec) <= 100 else spec[:97] + "..."
+            context_parts.append(f"  • {spec_text}")
+        context_parts.append("")
+    
+    # Add inferred content based on context
+    context_parts.append("🎯 **CONTENT ANALYSIS**:")
+    
+    page_content_lower = page_structure["structured_content"].lower()
+    
+    # Infer what the image likely shows based on page content
+    if any(term in page_content_lower for term in ['elevator', 'lift', 'vertical', '3-stage']):
+        context_parts.append("  → Technical diagram: Elevator mechanism and vertical movement system")
+        context_parts.append("  → Components: Rails, carriages, rigging, support structure")
+        
+    elif any(term in page_content_lower for term in ['drivetrain', 'wheel', 'motor', 'chassis']):
+        context_parts.append("  → Technical diagram: Drivetrain and mobility system")
+        context_parts.append("  → Components: Motors, gears, wheels, chassis framework")
+        
+    elif any(term in page_content_lower for term in ['intake', 'gripper', 'manipulator']):
+        context_parts.append("  → Technical diagram: Game piece manipulation system")
+        context_parts.append("  → Components: Intake mechanism, gripper, actuators")
+        
+    else:
+        context_parts.append("  → Technical diagram: Robot component or subsystem")
+        context_parts.append("  → Engineering drawing with specifications and dimensions")
+    
+    # Add materials and construction details if available
+    if any(term in page_content_lower for term in ['aluminum', 'tube', 'steel', 'material']):
+        context_parts.append("  → Materials: Metal fabrication with precise specifications")
+    
+    if any(term in page_content_lower for term in ['rigging', 'bearing', 'coupling']):
+        context_parts.append("  → Mechanics: Precision mechanical components and connections")
+    
+    context_parts.extend([
+        "",
+        "📝 **FULL PAGE CONTEXT**:",
+        context_excerpt
+    ])
+    
+    return "\n".join(context_parts)
+
+# ========================================================================
+# END ENHANCED EXTRACTION FUNCTIONS
+# ========================================================================
 
 
 def create_context_excerpt(text: str, max_length: int = 1500) -> str:
@@ -339,7 +631,7 @@ def process_pdfs_parallel(pdf_files: List[str], max_workers: int = None) -> List
 
 def process_pdf_with_images(pdf_path: str, pdf_images_path: str) -> List[Document]:
     """
-    Process PDF to extract both text and images, linking them together
+    ENHANCED: Process PDF to extract both text and images with structure preservation
     """
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF file not found at {pdf_path}")
@@ -350,113 +642,129 @@ def process_pdf_with_images(pdf_path: str, pdf_images_path: str) -> List[Documen
     # Open PDF
     pdf_document = fitz.open(pdf_path)
     total_pages = len(pdf_document)
-    print(f"[{pdf_name}] Processing PDF with {total_pages} pages...")
+    print(f"[{pdf_name}] ENHANCED processing PDF with {total_pages} pages...")
     
     pages_processed = 0
     for page_num in range(total_pages):
         page = pdf_document[page_num]
         
-        # Extract text from page
-        page_text = page.get_text()
+        # ENHANCED: Extract text with structure preservation
+        page_structure = extract_enhanced_text_structure(page)
         
-        if page_text.strip():  # Only process pages with text
-            # Analyze page context for better image filtering
-            page_context = analyze_page_context(page_text, page_num)
+        if page_structure["structured_content"].strip():  # Only process pages with content
             
-            # Extract images from this page, providing the full page text for context
-            image_info = extract_images_from_page(page, page_num, pdf_images_path, page_context, page_text)
+            # Analyze page context for better image filtering (use structured content)
+            page_context = analyze_page_context(page_structure["structured_content"], page_num)
             
-            # Create document with text and image references
+            # Extract images from this page, providing structured content for context
+            image_info = extract_images_from_page(page, page_num, pdf_images_path, page_context, page_structure["structured_content"])
+            
+            # ENHANCED: Create document with much richer context
+            enhanced_content = create_enhanced_document_content(
+                page_structure, page_num, image_info, pdf_name
+            )
+            
             metadata = {
                 "source": pdf_path,
-                "page": page_num + 1,  # 1-indexed for user friendliness
-                "type": "text_with_images",
+                "page": page_num + 1,
+                "type": "enhanced_text_with_images",
                 "image_count": len(image_info),
-                "image_filenames": json.dumps([img["filename"] for img in image_info]) if image_info else "[]"
+                "image_filenames": json.dumps([img["filename"] for img in image_info]) if image_info else "[]",
+                "headers_count": len(page_structure["headers"]),
+                "bullet_points_count": len(page_structure["bullet_points"]),
+                "layout_preserved": page_structure["layout_preserved"],
+                "extraction_method": "enhanced_structure_aware"
             }
             
-            # Add image descriptions to the text content if images exist
-            enhanced_content = page_text
-            if image_info:
-                image_descriptions = []
-                for img_info in image_info:
-                    if img_info.get("ocr_text"):
-                        image_descriptions.append(f"[Image {img_info['filename']}: {img_info['ocr_text']}]")
-                    else:
-                        image_descriptions.append(f"[Image {img_info['filename']}: Visual content on page {page_num + 1}]")
-                
-                enhanced_content += "\n\nImages on this page:\n" + "\n".join(image_descriptions)
-            
             document = Document(
-                page_content=enhanced_content,
+                page_content=enhanced_content,  # Much richer content
                 metadata=metadata
             )
             documents.append(document)
             
-            # Store image info separately for later retrieval
+            # ENHANCED: Create enhanced image context documents
             if image_info:
-                context_excerpt = create_context_excerpt(page_text)
+                context_excerpt = create_context_excerpt(page_structure["structured_content"])
 
                 for img_info in image_info:
                     image_text = (img_info.get("ocr_text") or "").strip()
                     
-                    # Use standardized formatting for consistent image context
-                    formatted_context = format_image_context(img_info, pdf_name, page_num, context_excerpt)
+                    # ENHANCED: Create much richer image context using page structure
+                    enhanced_image_context = create_enhanced_image_context(
+                        img_info, pdf_name, page_num, page_structure, context_excerpt
+                    )
 
                     image_context_doc = Document(
-                        page_content=formatted_context,
+                        page_content=enhanced_image_context,
                         metadata={
                             "source": pdf_path,
                             "page": page_num + 1,
-                            "type": "image_context",
+                            "type": "enhanced_image_context",
                             "image_file": img_info["filename"],
                             "image_path": img_info["file_path"],
                             "image_text": image_text,
                             "page_context_excerpt": context_excerpt,
-                            "formatted_context": formatted_context,  # Store formatted version
+                            "related_headers": json.dumps(page_structure["headers"]),
+                            "related_specs": json.dumps(page_structure["bullet_points"][:3]),  # Top 3 specs
+                            "extraction_method": "enhanced_context_aware"
                         }
                     )
                     documents.append(image_context_doc)
 
+                # Create enhanced metadata entries for images
                 for img_info in image_info:
-                    # Create a simple metadata entry for image info
                     img_metadata = {
                         "source": pdf_path,
                         "page": page_num + 1,
-                        "type": "image_info",
+                        "type": "enhanced_image_info",
                         "image_file": img_info["filename"],
                         "image_path": img_info["file_path"],
-                        "has_ocr_text": bool(img_info.get("ocr_text", "").strip())
+                        "has_ocr_text": bool(img_info.get("ocr_text", "").strip()),
+                        "related_headers_count": len(page_structure["headers"]),
+                        "related_specs_count": len(page_structure["bullet_points"])
                     }
                     
-                    # Create a document just for storing image metadata
+                    # Create enhanced image metadata document
                     img_doc = Document(
-                        page_content=f"Image metadata for {img_info['filename']} on page {page_num + 1}",
+                        page_content=f"Enhanced image metadata for {img_info['filename']} on page {page_num + 1} with {len(page_structure['headers'])} headers and {len(page_structure['bullet_points'])} specifications",
                         metadata=img_metadata
                     )
                     documents.append(img_doc)
             
-            # Create separate documents for each image with OCR text
+            # Create enhanced OCR documents with better context
             for img_info in image_info:
                 if img_info.get("ocr_text") and img_info["ocr_text"].strip():
+                    # Enhanced OCR content with page structure context
+                    enhanced_ocr_content = f"""Image OCR Content: {img_info['ocr_text']}
+
+Page Context: This image appears on page {page_num + 1} of {pdf_name}
+
+Related Sections: {', '.join(page_structure['headers'][:3])}
+
+Technical Specifications Present: {len(page_structure['bullet_points'])} detailed specs
+
+Full Context: This image is part of a technical document containing structured information about {', '.join(page_structure['headers'][:2]) if page_structure['headers'] else 'robotics components'}."""
+                    
                     img_document = Document(
-                        page_content=f"Image content: {img_info['ocr_text']}\n\nContext: This image appears on page {page_num + 1} of the document.",
+                        page_content=enhanced_ocr_content,
                         metadata={
                             "source": pdf_path,
                             "page": page_num + 1,
-                            "type": "image_text",
+                            "type": "enhanced_image_text",
                             "image_file": img_info["filename"],
-                            "image_path": img_info["file_path"]
+                            "image_path": img_info["file_path"],
+                            "extraction_method": "enhanced_ocr_with_context"
                         }
                     )
                     documents.append(img_document)
         
         pages_processed += 1
         if pages_processed % 5 == 0 or pages_processed == total_pages:
-            print(f"[{pdf_name}] Processed {pages_processed}/{total_pages} pages...")
+            extraction_quality = "✅ Enhanced" if page_structure.get("layout_preserved") else "⚠️ Basic"
+            print(f"[{pdf_name}] {extraction_quality} processing: {pages_processed}/{total_pages} pages...")
     
     pdf_document.close()
-    print(f"[{pdf_name}] Extracted content from {total_pages} pages, created {len(documents)} documents")
+    print(f"[{pdf_name}] ENHANCED extraction completed: {len(documents)} documents created")
     return documents
 
 def analyze_page_context(page_text: str, page_num: int) -> Dict[str, Any]:

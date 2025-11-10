@@ -463,7 +463,7 @@ Instructions:
         
         try:
             # Check if this is an image context document (preferred)
-            if doc.metadata.get('type') == 'image_context':
+            if doc.metadata.get('type') in ['image_context', 'enhanced_image_context']:
                 image_file = doc.metadata.get('image_file')
                 image_path = doc.metadata.get('image_path')
                 if image_file and image_path:
@@ -481,7 +481,7 @@ Instructions:
                     })
             
             # Check if this is an image document (fallback)
-            elif doc.metadata.get('type') == 'image_text':
+            elif doc.metadata.get('type') in ['image_text', 'enhanced_image_text', 'enhanced_image_info']:
                 image_file = doc.metadata.get('image_file')
                 image_path = doc.metadata.get('image_path')
                 if image_file and image_path:
@@ -505,7 +505,7 @@ Instructions:
                     })
             
             # Check for text documents with associated images
-            elif doc.metadata.get('type') == 'text_with_images':
+            elif doc.metadata.get('type') in ['text_with_images', 'enhanced_text_with_images']:
                 import json
                 image_filenames_str = doc.metadata.get('image_filenames', '[]')
                 try:
