@@ -156,6 +156,7 @@ def api_query():
             return jsonify({"error": "No JSON data provided"}), 400
             
         query_text = data.get('query', '').strip()
+        conversation_history = data.get('conversation_history', [])
         
         if not query_text:
             return jsonify({"error": "Query text is required"}), 400
@@ -165,7 +166,8 @@ def api_query():
         
         k = data.get('k', 10)
         enable_filtering = data.get('enable_filtering', False)  # Only enable if requested
-        result = query_processor.process_query(query_text, k, enable_filtering=enable_filtering)
+        result = query_processor.process_query(query_text, k, enable_filtering=enable_filtering, 
+                                               conversation_history=conversation_history)
         
         # Log the query (without sensitive data)
         logger.info(f"Query processed for client {client_id}: {len(query_text)} chars")
@@ -238,6 +240,7 @@ def api_query_stream():
             return jsonify({"error": "No JSON data provided"}), 400
             
         query_text = data.get('query', '').strip()
+        conversation_history = data.get('conversation_history', [])
         
         if not query_text:
             return jsonify({"error": "Query text is required"}), 400
@@ -252,7 +255,8 @@ def api_query_stream():
             try:
                 # First, send metadata (images, matched pieces, etc.)
                 enable_filtering = data.get('enable_filtering', False)  # Only enable if requested
-                metadata = query_processor.prepare_query_metadata(query_text, k, enable_filtering=enable_filtering)
+                metadata = query_processor.prepare_query_metadata(query_text, k, enable_filtering=enable_filtering,
+                                                                  conversation_history=conversation_history)
                 
                 if "error" in metadata:
                     yield f"data: {json.dumps({'error': metadata['error']})}\n\n"

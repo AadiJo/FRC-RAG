@@ -513,6 +513,9 @@
         // Global variable to store the current query for feedback
         let currentQuery = '';
         
+        // Conversation history for context
+        let conversationHistory = [];
+        
         // Scroll management
         let isAutoScrollEnabled = false; // Start disabled by default
         let isUserScrolling = false; // Track if user is manually scrolling
@@ -692,6 +695,17 @@
 
             // Store the current query for feedback
             currentQuery = message;
+            
+            // Add user message to conversation history
+            conversationHistory.push({
+                role: 'user',
+                content: message
+            });
+            
+            // Limit conversation history to last 20 messages (10 exchanges)
+            if (conversationHistory.length > 20) {
+                conversationHistory = conversationHistory.slice(-20);
+            }
 
             console.log('Adding user message to chat');
             // Add user message to chat
@@ -802,7 +816,10 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ query: message })
+                body: JSON.stringify({ 
+                    query: message,
+                    conversation_history: conversationHistory 
+                })
             })
             .then(async response => {
                 if (!response.ok) {
@@ -998,6 +1015,17 @@
             const textContentDiv = messageDiv.querySelector('.message-text-container');
             const textDiv = messageDiv.querySelector('.message-text');
             
+            // Add assistant response to conversation history
+            conversationHistory.push({
+                role: 'assistant',
+                content: finalText
+            });
+            
+            // Limit conversation history to last 20 messages (10 exchanges)
+            if (conversationHistory.length > 20) {
+                conversationHistory = conversationHistory.slice(-20);
+            }
+            
             // Remove cursor
             textDiv.innerHTML = formatText(finalText);
             
@@ -1080,6 +1108,29 @@
             console.log('DOM loaded, focusing input');
             messageInput.focus();
             console.log('Page fully loaded and ready!');
+            
+            // New Chat button handler
+            const newChatBtn = document.querySelector('.new-chat-btn');
+            if (newChatBtn) {
+                newChatBtn.addEventListener('click', function() {
+                    // Clear conversation history
+                    conversationHistory = [];
+                    
+                    // Clear chat messages except welcome message
+                    const chatMessages = document.getElementById('chatMessages');
+                    const welcomeMessage = chatMessages.querySelector('.welcome-message');
+                    chatMessages.innerHTML = '';
+                    if (welcomeMessage) {
+                        chatMessages.appendChild(welcomeMessage);
+                    }
+                    
+                    // Clear input
+                    messageInput.value = '';
+                    messageInput.focus();
+                    
+                    console.log('New chat started - conversation history cleared');
+                });
+            }
         });
     </script>
 </body>

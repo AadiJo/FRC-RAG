@@ -165,6 +165,8 @@ class QueryProcessor:
         self.prompt_template = """
 You are an expert FRC (FIRST Robotics Competition) assistant. Answer the question based on the following context and game piece information:
 
+{conversation_history}
+
 CONTEXT FROM TECHNICAL DOCUMENTS:
 {context}
 
@@ -177,7 +179,8 @@ Question: {question}
 
 Instructions:
 1. Use the technical documentation context to provide specific, actionable advice
-2. When discussing game pieces, acknowledge user terminology
+2. If there is previous conversation history, consider it when answering (e.g., if the user asks "tell me more" or "what about that", refer to the previous context)
+3. When discussing game pieces, acknowledge user terminology
 3. Include relevant dimensions, specifications, and technical details from the context
 4. If images are mentioned in the context, reference them in your answer
 5. Connect the technical information with practical implementation advice
@@ -325,10 +328,18 @@ Instructions:
                 print(f"❌ Ollama streaming failed: {e}")
                 yield "I encountered an issue generating the response. Please try again."
 
-    def process_query(self, query: str, k: int = 10, enable_filtering: bool = None, target_docs: int = 8) -> Dict[str, Any]:
+    def process_query(self, query: str, k: int = 10, enable_filtering: bool = None, target_docs: int = 8, 
+                     conversation_history: List[Dict] = None) -> Dict[str, Any]:
         """
         Process a user query with game piece enhancement, caching, and optional post-processing
         Returns a comprehensive response with context and metadata
+        
+        Args:
+            query: The user's query
+            k: Number of documents to retrieve
+            enable_filtering: Whether to enable post-processing filtering
+            target_docs: Target number of documents after filtering
+            conversation_history: List of previous messages in format [{"role": "user|assistant", "content": "..."}]
         """
         if not self.db:
             return {"error": "Database not initialized"}
@@ -471,11 +482,27 @@ Instructions:
         # Step 6: Generate AI response using filtered context
         context_text = "\n\n---\n\n".join(context_parts)
         
+        # Build conversation history text
+        history_text = ""
+        if conversation_history:
+            history_text = "\n\nPREVIOUS CONVERSATION:\n"
+            # Include last 6 messages (3 exchanges) to keep context manageable
+            recent_history = conversation_history[-6:]
+            for msg in recent_history:
+                role = "User" if msg.get('role') == 'user' else "Assistant"
+                content = msg.get('content', '')
+                # Truncate very long messages to save tokens
+                if len(content) > 300:
+                    content = content[:300] + "..."
+                history_text += f"{role}: {content}\n"
+            history_text += "\n---\n"
+        
         try:
             prompt_template = ChatPromptTemplate.from_template(self.prompt_template)
             prompt = prompt_template.format(
                 context=context_text,
                 game_piece_context=game_piece_context,
+                conversation_history=history_text,
                 question=query
             )
             
@@ -724,7 +751,8 @@ Instructions:
             print("✅ Expired cache entries removed")
         else:
             print("⚠️  Cache is disabled")    
-    def prepare_query_metadata(self, query: str, k: int = 10, enable_filtering: bool = None) -> Dict[str, Any]:
+    def prepare_query_metadata(self, query: str, k: int = 10, enable_filtering: bool = None, 
+                              conversation_history: List[Dict] = None) -> Dict[str, Any]:
         """
         Prepare metadata for a query (images, matched pieces, etc.) without generating the response.
         This is used for streaming to send metadata first.
@@ -733,6 +761,7 @@ Instructions:
             query: The query string
             k: Number of documents to retrieve
             enable_filtering: Whether to enable post-processing filtering (None = use default)
+            conversation_history: List of previous messages in format [{"role": "user|assistant", "content": "..."}]
         """
         # Step 1: Enhance query with game piece context
         matched_pieces, enhanced_query = self.game_piece_mapper.enhance_query(query)
@@ -791,7 +820,8 @@ Instructions:
                 "context_sources": 0,
                 "images": [],
                 "game_piece_context": "",
-                "context_parts": []
+                "context_parts": [],
+                "conversation_history": conversation_history or []
             }
         
         # Step 3: Collect related images and prepare context
@@ -844,7 +874,8 @@ Instructions:
             "images": web_images,
             "images_count": len(web_images),
             "game_piece_context": game_piece_context,
-            "context_parts": context_parts
+            "context_parts": context_parts,
+            "conversation_history": conversation_history or []
         }
     
     def stream_query_response(self, query: str, metadata: Dict[str, Any]):
@@ -854,12 +885,29 @@ Instructions:
         """
         context_text = "\n\n---\n\n".join(metadata['context_parts'])
         game_piece_context = metadata.get('game_piece_context', '')
+        conversation_history = metadata.get('conversation_history', [])
+        
+        # Build conversation history text
+        history_text = ""
+        if conversation_history:
+            history_text = "\n\nPREVIOUS CONVERSATION:\n"
+            # Include last 6 messages (3 exchanges) to keep context manageable
+            recent_history = conversation_history[-6:]
+            for msg in recent_history:
+                role = "User" if msg.get('role') == 'user' else "Assistant"
+                content = msg.get('content', '')
+                # Truncate very long messages to save tokens
+                if len(content) > 300:
+                    content = content[:300] + "..."
+                history_text += f"{role}: {content}\n"
+            history_text += "\n---\n"
         
         try:
             prompt_template = ChatPromptTemplate.from_template(self.prompt_template)
             prompt = prompt_template.format(
                 context=context_text,
                 game_piece_context=game_piece_context,
+                conversation_history=history_text,
                 question=query
             )
             
