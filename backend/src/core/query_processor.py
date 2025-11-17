@@ -16,6 +16,10 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.llms import Ollama
 from .game_piece_mapper import GamePieceMapper
 from ..utils.query_cache import QueryCache, ChunkCache
+from ..server.chutes_client import ChutesClient
+from ..server.config import get_config
+
+Config = get_config()
 
 class SimplePostProcessor:
     """
@@ -146,8 +150,12 @@ class QueryProcessor:
             self.chunk_cache = None
             print("⚠️  Query cache system disabled")
         
-        # Start Ollama service
-        self._ensure_ollama_running()
+        # Start Ollama service (only if using local provider)
+        if Config.MODEL_PROVIDER == 'local':
+            self._ensure_ollama_running()
+        
+        # Initialize model client
+        self._init_model_client()
         
         # Initialize database
         self.db = None
@@ -266,6 +274,56 @@ Instructions:
         except Exception as e:
             print(f"Error initializing database: {e}")
             return False
+
+    def _init_model_client(self):
+        """Initialize the appropriate model client based on configuration"""
+        if Config.MODEL_PROVIDER == 'chute':
+            try:
+                self.chutes_client = ChutesClient()
+                print(f"✅ Chutes AI client initialized for model provider: {Config.MODEL_PROVIDER}")
+            except Exception as e:
+                print(f"❌ Failed to initialize Chutes client: {e}")
+                self.chutes_client = None
+        else:
+            self.chutes_client = None
+            print(f"✅ Using local Ollama for model provider: {Config.MODEL_PROVIDER}")
+
+    def _generate_response(self, prompt: str) -> str:
+        """Generate response using the configured model provider"""
+        if Config.MODEL_PROVIDER == 'chute' and self.chutes_client:
+            try:
+                return self.chutes_client.chat_completion(prompt)
+            except Exception as e:
+                print(f"❌ Chutes AI request failed: {e}")
+                # Fallback to basic response
+                return "I encountered an issue generating the response. Please try again."
+        else:
+            # Use Ollama
+            try:
+                model = Ollama(model="gpt-oss:20b")
+                return model.invoke(prompt)
+            except Exception as e:
+                print(f"❌ Ollama request failed: {e}")
+                return "I encountered an issue generating the response. Please try again."
+
+    def _generate_response_stream(self, prompt: str):
+        """Generate streaming response using the configured model provider"""
+        if Config.MODEL_PROVIDER == 'chute' and self.chutes_client:
+            try:
+                for chunk in self.chutes_client.chat_completion_stream(prompt):
+                    yield chunk
+            except Exception as e:
+                print(f"❌ Chutes AI streaming failed: {e}")
+                yield "I encountered an issue generating the response. Please try again."
+        else:
+            # Use Ollama streaming
+            try:
+                model = Ollama(model="gpt-oss:20b")
+                for chunk in model.stream(prompt):
+                    yield chunk
+            except Exception as e:
+                print(f"❌ Ollama streaming failed: {e}")
+                yield "I encountered an issue generating the response. Please try again."
 
     def process_query(self, query: str, k: int = 10, enable_filtering: bool = None, target_docs: int = 8) -> Dict[str, Any]:
         """
@@ -421,8 +479,7 @@ Instructions:
                 question=query
             )
             
-            model = Ollama(model="gpt-oss:20b")
-            response_text = model.invoke(prompt)
+            response_text = self._generate_response(prompt)
             
         except Exception as e:
             # Fallback response if AI generation fails
@@ -806,11 +863,8 @@ Instructions:
                 question=query
             )
             
-            # Use Ollama with streaming
-            model = Ollama(model="gpt-oss:20b")
-            
-            # Stream the response
-            for chunk in model.stream(prompt):
+            # Stream the response using the configured provider
+            for chunk in self._generate_response_stream(prompt):
                 yield chunk
                 
         except Exception as e:

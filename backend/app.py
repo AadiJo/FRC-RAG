@@ -85,7 +85,11 @@ def index():
 @app.route('/health')
 def health_check():
     """Comprehensive health check endpoint"""
-    ollama_healthy = ollama_proxy.check_health()
+    ollama_healthy = ollama_proxy.check_health() if Config.MODEL_PROVIDER == 'local' else True
+    chutes_healthy = False
+    if Config.MODEL_PROVIDER == 'chute' and query_processor and hasattr(query_processor, 'chutes_client') and query_processor.chutes_client:
+        chutes_healthy = query_processor.chutes_client.check_health()
+    
     stats = ollama_proxy.get_stats()
     tunnel_status = tunnel_manager.get_status()
     
@@ -97,13 +101,20 @@ def health_check():
         except Exception as e:
             logger.warning(f"Could not get cache stats: {e}")
     
-    status = "healthy" if ollama_healthy and query_processor else "degraded"
+    # Determine overall status based on provider
+    if Config.MODEL_PROVIDER == 'chute':
+        model_healthy = chutes_healthy
+    else:
+        model_healthy = ollama_healthy
+        
+    status = "healthy" if model_healthy and query_processor else "degraded"
     
     return jsonify({
         "status": status,
         "timestamp": datetime.now().isoformat(),
         "components": {
-            "ollama": ollama_healthy,
+            "ollama": ollama_healthy if Config.MODEL_PROVIDER == 'local' else None,
+            "chutes_ai": chutes_healthy if Config.MODEL_PROVIDER == 'chute' else None,
             "query_processor": query_processor is not None,
             "chroma_db": os.path.exists(Config.CHROMA_PATH),
             "images": os.path.exists(Config.IMAGES_PATH)

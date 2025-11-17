@@ -1,0 +1,206 @@
+"""
+Chutes AI client for chat completions
+"""
+
+import requests
+import json
+import logging
+from typing import Dict, Any, Generator, Optional
+from .config import get_config
+
+Config = get_config()
+logger = logging.getLogger(__name__)
+
+class ChutesClient:
+    """Client for interacting with Chutes AI API"""
+    
+    def __init__(self):
+        self.api_url = "https://llm.chutes.ai/v1/chat/completions"
+        self.api_token = Config.CHUTES_API_TOKEN
+        self.model = "openai/gpt-oss-20b"
+        
+        if not self.api_token:
+            logger.warning("Chutes API token not configured")
+    
+    def chat_completion(self, prompt: str, stream: bool = False, 
+                       max_tokens: int = 100000, temperature: float = 0.7) -> str:
+        """
+        Generate a chat completion using Chutes AI
+        
+        Args:
+            prompt: The prompt to send to the model (can include system instructions)
+            stream: Whether to stream the response (currently returns full response)
+            max_tokens: Maximum tokens in response
+            temperature: Temperature for response generation
+            
+        Returns:
+            The generated response text
+        """
+        if not self.api_token:
+            raise ValueError("Chutes API token not configured")
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_token}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user", 
+                    "content": prompt
+                }
+            ],
+            "stream": False,  # For now, we'll handle streaming separately
+            "max_tokens": max_tokens,
+            "temperature": temperature
+        }
+        
+        try:
+            logger.info(f"Sending request to Chutes AI with model {self.model}")
+            response = requests.post(
+                self.api_url,
+                headers=headers,
+                json=data,
+                timeout=30
+            )
+            
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            # Extract the response text from the API response
+            if 'choices' in result and len(result['choices']) > 0:
+                choice = result['choices'][0]
+                message = choice.get('message', {})
+                
+                # Get content and reasoning content
+                content = message.get('content', '')
+                reasoning_content = message.get('reasoning_content', '')
+                
+                # Decide what to return based on configuration
+                if Config.SHOW_MODEL_REASONING and reasoning_content:
+                    # Include reasoning if enabled and available
+                    if content:
+                        return f"**Reasoning:** {reasoning_content}\n\n**Response:** {content}"
+                    else:
+                        return reasoning_content
+                else:
+                    # Return only content, skip reasoning
+                    if content:
+                        return content
+                    elif reasoning_content:
+                        # If no content but reasoning available, log a warning
+                        logger.warning("Only reasoning_content available, but SHOW_MODEL_REASONING is disabled")
+                        return "I apologize, but I'm having trouble generating a proper response. Please try again."
+                    else:
+                        logger.error(f"No content in response: {result}")
+                        raise ValueError("No content in Chutes AI response")
+            else:
+                logger.error(f"Unexpected response format: {result}")
+                raise ValueError("Invalid response format from Chutes AI")
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error: {e}")
+            raise ConnectionError(f"Failed to connect to Chutes AI: {e}")
+        except (KeyError, IndexError) as e:
+            logger.error(f"Response parsing error: {e}")
+            raise ValueError(f"Failed to parse Chutes AI response: {e}")
+    
+    def chat_completion_stream(self, prompt: str, max_tokens: int = 100000, 
+                             temperature: float = 0.7) -> Generator[str, None, None]:
+        """
+        Generate a streaming chat completion using Chutes AI
+        
+        Args:
+            prompt: The prompt to send to the model
+            max_tokens: Maximum tokens in response
+            temperature: Temperature for response generation
+            
+        Yields:
+            Chunks of the generated response text
+        """
+        if not self.api_token:
+            raise ValueError("Chutes API token not configured")
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_token}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user", 
+                    "content": prompt
+                }
+            ],
+            "stream": True,
+            "max_tokens": max_tokens,
+            "temperature": temperature
+        }
+        
+        try:
+            logger.info(f"Sending streaming request to Chutes AI with model {self.model}")
+            response = requests.post(
+                self.api_url,
+                headers=headers,
+                json=data,
+                stream=True,
+                timeout=60
+            )
+            
+            response.raise_for_status()
+            
+            # Process streaming response
+            for line in response.iter_lines(decode_unicode=True):
+                if line and line.startswith('data: '):
+                    data_str = line[6:]  # Remove 'data: ' prefix
+                    
+                    if data_str.strip() == '[DONE]':
+                        break
+                    
+                    try:
+                        data_json = json.loads(data_str)
+                        
+                        if 'choices' in data_json and len(data_json['choices']) > 0:
+                            delta = data_json['choices'][0].get('delta', {})
+                            
+                            # Get content and reasoning content from delta
+                            content = delta.get('content', '')
+                            reasoning_content = delta.get('reasoning_content', '')
+                            
+                            # Decide what to yield based on configuration
+                            if Config.SHOW_MODEL_REASONING and reasoning_content:
+                                yield reasoning_content
+                            elif content:
+                                yield content
+                            # Skip reasoning content if SHOW_MODEL_REASONING is False
+                                
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse streaming data: {e}")
+                        continue
+                        
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Streaming request error: {e}")
+            raise ConnectionError(f"Failed to connect to Chutes AI for streaming: {e}")
+    
+    def check_health(self) -> bool:
+        """
+        Check if the Chutes AI service is available
+        
+        Returns:
+            True if the service is healthy, False otherwise
+        """
+        if not self.api_token:
+            return False
+        
+        try:
+            # Make a minimal test request with enough tokens
+            response = self.chat_completion("Hello", max_tokens=10)
+            return bool(response and len(response.strip()) > 0)
+        except Exception as e:
+            logger.error(f"Chutes AI health check failed: {e}")
+            return False

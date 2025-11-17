@@ -24,6 +24,11 @@ class Config:
     OLLAMA_PORT = int(os.getenv('OLLAMA_PORT', 11434))
     OLLAMA_TIMEOUT = int(os.getenv('OLLAMA_TIMEOUT', 30))
     
+    # Model provider settings
+    MODEL_PROVIDER = os.getenv('MODEL_PROVIDER', 'local')  # 'local' or 'chute'
+    CHUTES_API_TOKEN = os.getenv('CHUTES_API_TOKEN', '')
+    SHOW_MODEL_REASONING = os.getenv('SHOW_MODEL_REASONING', 'false').lower() == 'true'
+    
     # Rate limiting settings
     RATE_LIMIT_REQUESTS = int(os.getenv('RATE_LIMIT_REQUESTS', 60))
     RATE_LIMIT_WINDOW = int(os.getenv('RATE_LIMIT_WINDOW', 1))
@@ -72,6 +77,11 @@ class Config:
                 'port': cls.OLLAMA_PORT,
                 'timeout': cls.OLLAMA_TIMEOUT,
                 'url': cls.get_ollama_url()
+            },
+            'model_provider': {
+                'provider': cls.MODEL_PROVIDER,
+                'chutes_configured': bool(cls.CHUTES_API_TOKEN),
+                'show_reasoning': cls.SHOW_MODEL_REASONING
             },
             'rate_limiting': {
                 'requests': cls.RATE_LIMIT_REQUESTS,
