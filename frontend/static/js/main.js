@@ -20,10 +20,17 @@ import {
 } from './ui.js';
 import { formatText } from './utils.js';
 
+function updateSendButtonState() {
+    if (elements.messageInput && elements.sendButton) {
+        elements.sendButton.disabled = elements.messageInput.value.trim().length === 0;
+    }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', function () {
     console.log('DOM loaded, focusing input');
     elements.messageInput.focus();
+    updateSendButtonState();
     console.log('Page fully loaded and ready!');
 
     // New Chat button handler
@@ -41,6 +48,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // Clear input
             elements.messageInput.value = '';
+            updateSendButtonState();
             elements.messageInput.focus();
 
             console.log('New chat started - conversation history cleared');
@@ -50,6 +58,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
 // Event Listeners
 console.log('Setting up event listeners...');
+
+elements.messageInput.addEventListener('input', updateSendButtonState);
 
 elements.sendButton.addEventListener('click', function () {
     console.log('Send button clicked!');
@@ -119,6 +129,7 @@ function sendMessage(queryOverride) {
 
     // Clear input
     elements.messageInput.value = '';
+    updateSendButtonState();
 
     // Show loading
     showLoading();
