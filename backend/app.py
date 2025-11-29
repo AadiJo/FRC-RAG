@@ -77,11 +77,6 @@ def log_request():
     if Config.LOG_LEVEL == 'DEBUG':
         logger.debug(f"{request.method} {request.path} from {request.remote_addr}")
 
-@app.route('/')
-def index():
-    """Serve the main chat interface"""
-    return render_template('index.html')
-
 @app.route('/health')
 def health_check():
     """Comprehensive health check endpoint"""
@@ -179,7 +174,14 @@ def api_query():
         web_images = []
         for img in result.get("related_images", []):
             img_exists = os.path.exists(img['file_path'])
-            web_path = img['file_path'].replace(Config.IMAGES_PATH + '/', '')
+            try:
+                # Use relpath for safer path calculation
+                web_path = os.path.relpath(img['file_path'], Config.IMAGES_PATH)
+                # Ensure forward slashes for URLs
+                web_path = web_path.replace(os.sep, '/')
+            except ValueError:
+                # Fallback if paths are on different drives or incompatible
+                web_path = img['file_path'].replace(Config.IMAGES_PATH + '/', '')
             
             web_images.append({
                 'filename': img['filename'],

@@ -5,3 +5,5 @@ __pycache__/
 venv/
 *.log
 .DS_Store
+# Local configuration
+static/config.js
