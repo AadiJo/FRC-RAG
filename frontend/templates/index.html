@@ -6,8 +6,8 @@
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>FRC RAG</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=6">
-    <link rel="stylesheet" href="{{ url_for('static', filename='custom.css') }}?v=6">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=9">
+    <link rel="stylesheet" href="{{ url_for('static', filename='custom.css') }}?v=9">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <!-- Syntax highlighting for code blocks -->
     <link href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css" rel="stylesheet">
@@ -19,53 +19,12 @@
 
 <body class="font-sans bg-background text-foreground h-screen overflow-hidden">
     <div class="flex h-screen bg-background relative">
-        <!-- Sidebar -->
-        <div
-            class="w-[260px] bg-[#171717] border-r border-[#2f2f2f] flex flex-col transition-transform duration-300 flex-shrink-0 relative z-[100] sidebar collapsed">
-            <div class="p-3.5 border-b border-[#2f2f2f]">
-                <div class="flex items-center gap-3 mb-4 text-foreground">
-                    <div
-                        class="w-8 h-8 bg-gradient-to-br from-primary to-primary/80 rounded-lg flex items-center justify-center text-white text-base">
-                        <i class="fas fa-robot"></i>
-                    </div>
-                    <div class="font-semibold text-lg">FRC RAG</div>
-                </div>
-                <button
-                    class="w-full px-4 py-3 bg-secondary border border-[#424242] rounded-md text-foreground cursor-pointer flex items-center gap-3 text-sm transition-colors hover:bg-[#3f3f3f]">
-                    <i class="fas fa-plus"></i>
-                    New Chat
-                </button>
-            </div>
-            <div class="flex-1 overflow-y-auto p-2">
-                <div class="chat-history">
-                    <!-- Chat history will go here -->
-                </div>
-            </div>
-            <div class="p-3.5 border-t border-[#2f2f2f]">
-                <div class="flex items-center gap-3 text-foreground text-sm">
-                    <div class="w-7 h-7 bg-[#424242] rounded-full flex items-center justify-center text-xs">
-                        <i class="fas fa-user"></i>
-                    </div>
-                    <span>User</span>
-                </div>
-            </div>
-        </div>
-
         <!-- Main Chat Area -->
         <div
-            class="main-chat flex-1 flex flex-col bg-background min-w-0 transition-[margin-left] duration-300 relative">
+            class="main-chat flex-1 flex flex-col bg-background min-w-0 relative">
             <!-- Header -->
-            <div class="bg-background border-b border-[#2f2f2f] px-5 py-4 flex items-center min-h-[60px] relative">
-                <div class="flex items-center gap-4 w-full">
-                    <button
-                        class="bg-none border-none text-foreground text-base cursor-pointer p-2 rounded-md transition-colors hover:bg-secondary flex-shrink-0"
-                        id="sidebarToggle">
-                        <i class="fas fa-bars"></i>
-                    </button>
-                    <div class="ml-0">
-                        <h1 class="text-xl font-semibold text-foreground m-0">FRC RAG</h1>
-                    </div>
-                </div>
+            <div class="bg-background border-b border-[#2f2f2f] px-5 flex items-center relative" style="padding-top: 24px; padding-bottom: 24px;">
+                <h1 class="text-xl font-semibold text-foreground m-0">FRC RAG</h1>
             </div>
 
             <!-- Chat Messages Area -->
@@ -107,11 +66,11 @@
             <div class="bg-background p-5 border-t border-[#2f2f2f]">
                 <div class="max-w-3xl mx-auto">
                     <div
-                        class="relative flex items-center bg-secondary border-2 border-[#424242] rounded-3xl px-4 py-3 transition-colors focus-within:border-primary">
+                        class="relative flex items-center bg-secondary border-2 border-[#424242] rounded-3xl px-4 py-3 transition-all focus-within:border-primary focus-within:shadow-lg focus-within:shadow-primary/20">
                         <textarea id="messageInput" placeholder="Ask me anything about FRC..."
                             class="flex-1 bg-transparent border-none outline-none text-foreground text-base leading-normal p-0 resize-none max-h-[200px] overflow-y-auto placeholder:text-[#8e8ea0]"></textarea>
                         <button id="sendButton"
-                            class="w-8 h-8 border-none rounded-2xl bg-primary text-white cursor-pointer flex items-center justify-center transition-colors text-sm ml-2 flex-shrink-0 hover:bg-primary/90 disabled:bg-[#424242] disabled:cursor-not-allowed">
+                            class="w-8 h-8 border-none rounded-2xl bg-primary text-white cursor-pointer flex items-center justify-center transition-all text-sm ml-2 flex-shrink-0 hover:bg-primary/90 hover:scale-105 active:scale-95 disabled:bg-[#424242] disabled:cursor-not-allowed disabled:hover:scale-100">
                             <i class="fas fa-paper-plane"></i>
                         </button>
                     </div>
@@ -490,7 +449,6 @@
         const modalTitle = document.getElementById('modalTitle');
         const modalDescription = document.getElementById('modalDescription');
         const modalClose = document.getElementById('modalClose');
-        const sidebarToggle = document.getElementById('sidebarToggle');
         const scrollToBottomBtn = document.getElementById('scrollToBottomBtn');
 
         // Global variable to store the current query for feedback
@@ -604,25 +562,6 @@
                     }, 2000);
                 });
         }
-
-        // Sidebar toggle functionality
-        sidebarToggle.addEventListener('click', function () {
-            const sidebar = document.querySelector('.sidebar');
-            sidebar.classList.toggle('collapsed');
-        });
-
-        // Close sidebar when clicking outside on mobile
-        document.addEventListener('click', function (e) {
-            const sidebar = document.querySelector('.sidebar');
-            const sidebarToggle = document.getElementById('sidebarToggle');
-            if (window.innerWidth <= 768) {
-                if (!sidebar.classList.contains('collapsed') &&
-                    !sidebar.contains(e.target) &&
-                    !sidebarToggle.contains(e.target)) {
-                    sidebar.classList.add('collapsed');
-                }
-            }
-        });
 
         // Event Listeners
         console.log('Setting up event listeners...');
