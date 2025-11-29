@@ -1,4 +1,9 @@
 import os
+# Set environment variables to suppress TensorFlow and ChromaDB noise
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['ANONYMIZED_TELEMETRY'] = 'False'
+
 import shutil
 import glob
 import json
@@ -15,11 +20,18 @@ import time
 from xml.sax.saxutils import escape
 import re
 import sys
+import logging
 import chromadb
+
+# Suppress noisy loggers
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("chromadb").setLevel(logging.ERROR)
+logging.getLogger("chromadb.telemetry").setLevel(logging.CRITICAL)
+logging.getLogger("posthog").setLevel(logging.CRITICAL)
 
 from langchain.schema import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 import pytesseract
 from transformers import BlipProcessor, BlipForConditionalGeneration

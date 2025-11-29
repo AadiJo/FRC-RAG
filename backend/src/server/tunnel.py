@@ -49,7 +49,6 @@ class TunnelManager:
                          check=True, capture_output=True)
             
             # Start ngrok tunnel
-            logger.info(f"Starting ngrok tunnel for port {Config.PORT}")
             self.tunnel_process = subprocess.Popen(
                 ['ngrok', 'http', str(Config.PORT), '--log=stdout'],
                 stdout=subprocess.PIPE,
@@ -62,7 +61,6 @@ class TunnelManager:
             
             if tunnel_url:
                 self.tunnel_url = tunnel_url
-                logger.info(f"Ngrok tunnel established: {tunnel_url}")
                 return tunnel_url
             else:
                 logger.error("Failed to get ngrok tunnel URL")

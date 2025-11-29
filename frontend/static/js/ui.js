@@ -43,7 +43,6 @@ export function isAtBottom() {
 }
 
 export function scrollToBottom() {
-    console.log('Scroll button clicked - enabling follow mode');
     state.isAutoScrollEnabled = true;
     state.isUserScrolling = false;
     state.isProgrammaticScroll = true;
@@ -111,7 +110,6 @@ export function openImageModal(image) {
 
     elements.modalDescription.innerHTML = modalContent;
     elements.imageModal.style.display = 'block';
-    console.log('Modal should now be visible');
 }
 
 export function closeModal() {

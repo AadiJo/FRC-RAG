@@ -11,7 +11,7 @@ import numpy as np
 import re
 import chromadb
 from typing import List, Dict, Any, Tuple
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain.prompts import ChatPromptTemplate
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.llms import Ollama

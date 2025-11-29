@@ -31,7 +31,8 @@ class OllamaProxy:
         self.start_time = time.time()
         self.usage_lock = Lock()
         
-        logger.info(f"Ollama proxy initialized for {self.ollama_base_url}")
+        if Config.MODEL_PROVIDER == 'local':
+            logger.info(f"Ollama proxy initialized for {self.ollama_base_url}")
         
     def check_health(self) -> bool:
         """Check if Ollama service is healthy"""

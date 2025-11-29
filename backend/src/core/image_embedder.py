@@ -9,7 +9,8 @@ class ImageEmbedder:
         print(f"Loading SigLIP model {model_name} on {self.device}...")
         try:
             self.model = AutoModel.from_pretrained(model_name).to(self.device)
-            self.processor = AutoProcessor.from_pretrained(model_name)
+            # use_fast=True suppresses the "slow image processor" warning and uses the fast implementation
+            self.processor = AutoProcessor.from_pretrained(model_name, use_fast=True)
             self.model.eval() # Set to evaluation mode
         except Exception as e:
             print(f"Error loading model {model_name}: {e}")

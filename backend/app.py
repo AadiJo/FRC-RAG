@@ -4,6 +4,11 @@ Production-ready server with rate limiting, tunneling, and monitoring
 """
 
 import os
+# Set environment variables to suppress TensorFlow and ChromaDB noise
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['ANONYMIZED_TELEMETRY'] = 'False'
+
 import sys
 import json
 import time
@@ -31,6 +36,13 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
+# Suppress noisy loggers
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("chromadb").setLevel(logging.ERROR)
+logging.getLogger("chromadb.telemetry").setLevel(logging.CRITICAL)
+logging.getLogger("posthog").setLevel(logging.CRITICAL)
+
 logger = logging.getLogger(__name__)
 
 # Initialize Flask app
@@ -48,7 +60,6 @@ def init_query_processor():
     global query_processor
     try:
         query_processor = QueryProcessor(Config.CHROMA_PATH, Config.IMAGES_PATH)
-        logger.info("Query processor initialized successfully")
         return True
     except Exception as e:
         logger.error(f"Error initializing query processor: {e}")
@@ -529,8 +540,8 @@ if __name__ == '__main__':
     logger.info("Starting FRC RAG Server")
     logger.info(f"Environment: {Config.ENVIRONMENT}")
     logger.info(f"Host: {Config.HOST}:{Config.PORT}")
-    logger.info(f"Ollama: {Config.get_ollama_url()}")
-    logger.info(f"Rate limiting: {Config.RATE_LIMIT_REQUESTS} requests per {Config.RATE_LIMIT_WINDOW} minute(s)")
+    if Config.MODEL_PROVIDER == 'local':
+        logger.info(f"Ollama: {Config.get_ollama_url()}")
     logger.info("="*60)
     
     # Initialize query processor
@@ -539,11 +550,12 @@ if __name__ == '__main__':
     else:
         logger.error("✗ Query processor initialization failed")
     
-    # Check Ollama health
-    if ollama_proxy.check_health():
-        logger.info("✓ Ollama service is healthy")
-    else:
-        logger.warning("✗ Ollama service is not available")
+    # Check Ollama health only if local
+    if Config.MODEL_PROVIDER == 'local':
+        if ollama_proxy.check_health():
+            logger.info("✓ Ollama service is healthy")
+        else:
+            logger.warning("✗ Ollama service is not available")
     
     # Start tunnel if configured
     if Config.TUNNEL_SERVICE:
