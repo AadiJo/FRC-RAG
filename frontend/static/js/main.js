@@ -1,6 +1,6 @@
 /**
  * Main application entry point.
- * I've orchestrated the application logic here, connecting the UI, API, and State.
+ * I've compiled the application logic here, connecting the UI, API, and State.
  */
 import { state, resetConversation } from './state.js';
 import { streamQuery } from './api.js';
