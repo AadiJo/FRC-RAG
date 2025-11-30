@@ -102,13 +102,14 @@ export function submitFeedback(query, responseText, feedbackType, onSuccess, onE
 
 export async function streamQuery(query, conversationHistory, options, callbacks) {
     const { onMetadata, onContent, onDone, onError } = callbacks;
+    const { signal, ...otherOptions } = options || {};
 
     try {
         // Build request body with optional custom API key and model
         const requestBody = {
             query: query,
             conversation_history: conversationHistory,
-            ...options
+            ...otherOptions
         };
         
         // Add custom API key and model if available in state
@@ -129,7 +130,8 @@ export async function streamQuery(query, conversationHistory, options, callbacks
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify(requestBody),
+            signal: signal
         });
 
         if (!response.ok) {

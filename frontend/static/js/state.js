@@ -34,6 +34,7 @@ export const state = {
     scrollToResponseTop: null, // Element to scroll to top of viewport when streaming starts
     isTableInteracting: false,
     shouldRunAfterInteraction: false,
+    abortController: null,
     // Settings state - API key is never persisted for security
     customApiKey: null,
     customModel: savedSettings.customModel,

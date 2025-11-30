@@ -12,6 +12,7 @@ import {
     scrollToBottom, 
     autoScrollIfFollowing, 
     updateScrollButton,
+    updateSendButtonIcon,
     scrollToUserMessage,
     handleUserScroll,
     isAtBottom, 
@@ -24,7 +25,11 @@ import { formatText } from './utils.js';
 
 function updateSendButtonState() {
     if (elements.messageInput && elements.sendButton) {
-        elements.sendButton.disabled = elements.messageInput.value.trim().length === 0;
+        if (state.isStreaming) {
+            elements.sendButton.disabled = false;
+        } else {
+            elements.sendButton.disabled = elements.messageInput.value.trim().length === 0;
+        }
     }
 }
 
@@ -484,6 +489,17 @@ elements.chatMessages.addEventListener('scroll', function (e) {
 
 function sendMessage(queryOverride) {
     console.log('sendMessage function called');
+    
+    // Handle stop button click
+    if (state.isStreaming) {
+        if (state.abortController) {
+            state.abortController.abort();
+            state.abortController = null;
+            // The streamQuery error handler will catch the abort error
+        }
+        return;
+    }
+
     const message = queryOverride || elements.messageInput.value.trim();
     console.log('Message:', message);
     if (!message) {
@@ -516,6 +532,9 @@ function sendMessage(queryOverride) {
     // Reset scroll state for new message - don't follow stream initially
     state.isFollowingStream = false;
     state.isStreaming = true;
+    updateSendButtonIcon();
+    updateSendButtonState();
+    
     state.forceScrollButtonVisible = false;
     elements.scrollToBottomBtn.setAttribute('data-visible', 'false'); // Hide until we can show it appropriately
     
@@ -538,6 +557,9 @@ function sendMessageWithStreaming(message) {
     // Reset interaction state for new message
     state.isTableInteracting = false;
     state.shouldRunAfterInteraction = false;
+    
+    // Create abort controller
+    state.abortController = new AbortController();
 
     function attachTableInteractionHandlers() {
         if (!textDiv) return;
@@ -605,7 +627,8 @@ function sendMessageWithStreaming(message) {
     }
 
     const options = {
-        show_reasoning: elements.showReasoning ? elements.showReasoning.checked : false
+        show_reasoning: elements.showReasoning ? elements.showReasoning.checked : false,
+        signal: state.abortController.signal
     };
 
     streamQuery(message, state.conversationHistory, options, {
@@ -673,6 +696,10 @@ function sendMessageWithStreaming(message) {
             
             // Mark streaming as done FIRST to prevent updateContent from running
             state.isStreaming = false;
+            state.abortController = null;
+            updateSendButtonIcon();
+            updateSendButtonState();
+
             state.forceScrollButtonVisible = false;
 
             if (!hasRenderedVisibleContent) {
@@ -697,8 +724,45 @@ function sendMessageWithStreaming(message) {
         },
         onError: (error) => {
             console.error('Stream error:', error);
+            if (updateTimeout) {
+                clearTimeout(updateTimeout);
+                updateTimeout = null;
+            }
+            
+            state.isStreaming = false;
+            state.abortController = null;
+            updateSendButtonIcon();
+            updateSendButtonState();
+            
+            state.forceScrollButtonVisible = false;
             hideLoading();
-            addMessage(`Error: ${error}`, 'assistant', [], true);
+            
+            // If aborted, we might want to keep what we have so far
+            // Check for various abort error signatures
+            const errorMessage = typeof error === 'string' ? error : (error.message || '');
+            const isAbort = error.name === 'AbortError' || 
+                           errorMessage.toLowerCase().includes('aborted') ||
+                           error === 'AbortError';
+
+            if (isAbort) {
+                console.log('Request aborted by user');
+                if (assistantMessageDiv && metadata) {
+                    // Update history with partial response
+                    state.conversationHistory.push({
+                        role: 'assistant',
+                        content: currentText
+                    });
+                    if (state.conversationHistory.length > 20) {
+                        state.conversationHistory = state.conversationHistory.slice(-20);
+                    }
+                    finalizeStreamingMessage(assistantMessageDiv, currentText, metadata, (query) => {
+                        elements.messageInput.value = query;
+                        sendMessage();
+                    });
+                }
+            } else {
+                addMessage(`Error: ${error.message || error}`, 'assistant', [], true);
+            }
         }
     });
 }

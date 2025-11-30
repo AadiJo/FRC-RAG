@@ -76,6 +76,15 @@ export function updateScrollButton() {
     elements.scrollToBottomBtn.setAttribute('data-visible', shouldShow ? 'true' : 'false');
 }
 
+export function updateSendButtonIcon() {
+    const icon = elements.sendButton.querySelector('i');
+    if (state.isStreaming) {
+        icon.className = 'fas fa-stop';
+    } else {
+        icon.className = 'fas fa-arrow-up';
+    }
+}
+
 export function scrollToBottom() {
     const container = elements.chatMessages;
 
