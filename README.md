@@ -2,17 +2,6 @@
 
 A production-ready Retrieval-Augmented Generation (RAG) system designed for FIRST Robotics Competition teams. Features query processing, game piece mapping, caching, and scalable deployment architecture.
 
-## Features
-
-- **Query Processing**: Enhanced RAG system with FRC game piece context mapping
-
-- **Caching**: Semantic and exact-match caching for 30-90% faster responses
-
-- **Rate Limiting**: Configurable rate limits to prevent abuse (default: 60 requests/minute)
-
-- **Real-time Monitoring**: Performance monitoring and usage statistics with cache hit rates
-
-
 ## Problem Statement
 
 FRC teams often spend time creating new designs for mechanisms that other teams have already built successfully in past seasons. This happens because teams don't have an easy way to see what solutions already exist from previous competitions.
@@ -26,6 +15,16 @@ This tool helps FRC teams build on existing knowledge instead of starting from s
 ## What makes FRC RAG different?
 
 Users can upload documents, CAD files, and forum threads in real time, keeping the knowledge base up to date with current season innovations. The system uses multi-season mechanism retrieval and game-piece context mapping to return solutions that are truly relevant to the current challenge. With caching, rate limiting, and real-time monitoring, the platform is designed to be production-ready and deployable, so teams can integrate it into their workflow immediately
+
+## Features
+
+- **Query Processing**: Enhanced RAG system with FRC game piece context mapping
+
+- **Caching**: Semantic and exact-match caching for 30-90% faster responses
+
+- **Rate Limiting**: Configurable rate limits to prevent abuse (default: 60 requests/minute)
+
+- **Real-time Monitoring**: Performance monitoring and usage statistics with cache hit rates
 
 ## Planned Additions
 
