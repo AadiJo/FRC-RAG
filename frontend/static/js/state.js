@@ -16,7 +16,8 @@ function loadSettings() {
     return {
         customApiKey: null,
         customModel: null,
-        apiKeyValidated: false
+        apiKeyValidated: false,
+        systemPrompt: null
     };
 }
 
@@ -39,7 +40,7 @@ export const state = {
     customApiKey: null,
     customModel: savedSettings.customModel,
     apiKeyValidated: false,
-    systemPrompt: null
+    systemPrompt: savedSettings.systemPrompt
 };
 
 export function resetConversation() {
@@ -52,7 +53,8 @@ export function saveSettings() {
         // Note: We intentionally don't save the API key for security
         // User will need to re-enter it on page reload
         localStorage.setItem('frc_rag_settings', JSON.stringify({
-            customModel: state.customModel
+            customModel: state.customModel,
+            systemPrompt: state.systemPrompt
             // customApiKey and apiKeyValidated are not persisted
         }));
     } catch (e) {

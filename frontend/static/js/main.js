@@ -443,13 +443,13 @@ function updateToolChips() {
     
     if (elements.showReasoning && elements.showReasoning.checked) {
         const chip = document.createElement('div');
-        chip.className = 'flex items-center gap-2 bg-[#1e3a8a] text-[#60a5fa] px-3 py-1.5 rounded-full text-sm font-medium cursor-pointer hover:bg-[#1e40af] transition-colors group select-none';
+        chip.className = 'flex items-center gap-1 bg-[#1e3a8a] text-[#60a5fa] px-3 py-1.5 rounded-full text-sm font-medium cursor-pointer hover:bg-[#1e40af] transition-colors group select-none';
         chip.innerHTML = `
             <div class="w-4 h-4 flex items-center justify-center relative">
                 <i class="fas fa-brain text-xs absolute transition-opacity duration-200 opacity-100 group-hover:opacity-0"></i>
                 <i class="fas fa-times text-xs absolute transition-opacity duration-200 opacity-0 group-hover:opacity-100"></i>
             </div>
-            <span class="leading-none pt-[1px]">Reasoning</span>
+            <span class="whitespace-nowrap relative -top-[1px]">Reasoning</span>
         `;
         
         chip.addEventListener('click', function() {
