@@ -444,7 +444,7 @@ function updateToolChips() {
                 <i class="fas fa-brain text-xs absolute transition-opacity duration-200 opacity-100 group-hover:opacity-0"></i>
                 <i class="fas fa-times text-xs absolute transition-opacity duration-200 opacity-0 group-hover:opacity-100"></i>
             </div>
-            <span>Reasoning</span>
+            <span class="leading-none pt-[1px]">Reasoning</span>
         `;
         
         chip.addEventListener('click', function() {
