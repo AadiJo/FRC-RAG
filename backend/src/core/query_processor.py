@@ -396,12 +396,10 @@ Instructions:
         print("Processing new query (cache miss)")
         
         # Step 1: Analyze query for game pieces
-        matched_pieces, enhanced_query = self.game_piece_mapper.enhance_query(query)
+        enhanced_query, matched_pieces = self.game_piece_mapper.enhance_query(query)
         
         # Ensure enhanced_query is a string
-        if isinstance(enhanced_query, list):
-            enhanced_query = ' '.join(str(item) for item in enhanced_query) if enhanced_query else query
-        elif not isinstance(enhanced_query, str):
+        if not isinstance(enhanced_query, str):
             enhanced_query = str(enhanced_query) if enhanced_query else query
         
         # Fall back to original query if enhanced query is empty
@@ -811,12 +809,10 @@ Instructions:
             conversation_history: List of previous messages in format [{"role": "user|assistant", "content": "..."}]
         """
         # Step 1: Enhance query with game piece context
-        matched_pieces, enhanced_query = self.game_piece_mapper.enhance_query(query)
+        enhanced_query, matched_pieces = self.game_piece_mapper.enhance_query(query)
         
         # Ensure enhanced_query is a string
-        if isinstance(enhanced_query, list):
-            enhanced_query = ' '.join(str(item) for item in enhanced_query) if enhanced_query else query
-        elif not isinstance(enhanced_query, str):
+        if not isinstance(enhanced_query, str):
             enhanced_query = str(enhanced_query) if enhanced_query else query
         
         if not enhanced_query.strip():
