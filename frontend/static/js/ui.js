@@ -31,7 +31,10 @@ export const elements = {
     toggleApiKeyVisibility: document.getElementById('toggleApiKeyVisibility'),
     validateApiKey: document.getElementById('validateApiKey'),
     apiKeyStatus: document.getElementById('apiKeyStatus'),
-    modelSelector: document.getElementById('modelSelector'),
+    modelSelector: document.getElementById('modelSelector'), // Hidden input
+    modelSelectorContainer: document.getElementById('modelSelectorContainer'),
+    modelSelectorTrigger: document.getElementById('modelSelectorTrigger'),
+    modelOptionsList: document.getElementById('modelOptionsList'),
     modelStatus: document.getElementById('modelStatus'),
     settingsSave: document.getElementById('settingsSave')
 };

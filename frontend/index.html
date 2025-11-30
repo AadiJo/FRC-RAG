@@ -173,9 +173,19 @@
                         <i class="fas fa-robot"></i> Model
                     </label>
                     <p class="settings-hint">Select a model to use. Requires a valid API key to change from default.</p>
-                    <select id="modelSelector" class="settings-select" disabled>
-                        <option value="">Using server default model</option>
-                    </select>
+                    
+                    <div class="custom-model-selector" id="modelSelectorContainer">
+                        <div class="selected-model" id="modelSelectorTrigger">
+                            <span class="current-model-name">Using server default model</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="model-options" id="modelOptionsList">
+                            <!-- Options will be populated by JS -->
+                        </div>
+                    </div>
+                    <!-- Hidden input to store value -->
+                    <input type="hidden" id="modelSelector" value="">
+
                     <div id="modelStatus" class="model-status"></div>
                 </div>
             </div>

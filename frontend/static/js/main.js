@@ -68,6 +68,9 @@ async function initializeSettingsModal() {
         elements.apiKeyInput.value = state.customApiKey;
     }
     
+    // Setup custom dropdown listeners
+    setupCustomDropdown();
+    
     // Initialize model selector state
     updateModelSelectorState();
     
@@ -75,9 +78,52 @@ async function initializeSettingsModal() {
     if (state.apiKeyValidated && state.customApiKey) {
         await loadModels();
         if (state.customModel) {
-            elements.modelSelector.value = state.customModel;
+            selectModel(state.customModel);
         }
     }
+}
+
+function setupCustomDropdown() {
+    // Toggle dropdown
+    elements.modelSelectorTrigger.addEventListener('click', (e) => {
+        if (elements.modelSelectorTrigger.classList.contains('disabled')) return;
+        e.stopPropagation();
+        elements.modelOptionsList.classList.toggle('show');
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!elements.modelSelectorContainer.contains(e.target)) {
+            elements.modelOptionsList.classList.remove('show');
+        }
+    });
+}
+
+function selectModel(modelId, modelName = null) {
+    elements.modelSelector.value = modelId;
+    state.customModel = modelId;
+    
+    // Update display
+    if (!modelName) {
+        // Try to find name from options if not provided
+        const option = Array.from(elements.modelOptionsList.children).find(opt => opt.dataset.value === modelId);
+        if (option) {
+            modelName = option.querySelector('.model-name-text').textContent;
+        } else {
+            modelName = modelId; // Fallback
+        }
+    }
+    
+    const triggerText = elements.modelSelectorTrigger.querySelector('.current-model-name');
+    if (triggerText) triggerText.textContent = modelName;
+
+    // Update selected state in list
+    Array.from(elements.modelOptionsList.children).forEach(opt => {
+        if (opt.dataset.value === modelId) opt.classList.add('selected');
+        else opt.classList.remove('selected');
+    });
+    
+    elements.modelOptionsList.classList.remove('show');
 }
 
 const DEFAULT_SERVER_MODEL = 'openai/gpt-oss-20b';
@@ -85,20 +131,18 @@ const DEFAULT_SERVER_MODEL_NAME = 'GPT-OSS 20B (Server Default)';
 
 function updateModelSelectorState() {
     if (state.apiKeyValidated) {
-        elements.modelSelector.disabled = false;
+        elements.modelSelectorTrigger.classList.remove('disabled');
         elements.modelStatus.innerHTML = '<i class="fas fa-check-circle"></i> Model selection enabled';
         elements.modelStatus.style.color = '#22c55e';
         elements.apiKeyInput.classList.remove('invalid');
     } else {
-        elements.modelSelector.disabled = true;
+        elements.modelSelectorTrigger.classList.add('disabled');
         elements.modelStatus.innerHTML = '<i class="fas fa-lock"></i> Provide a valid API key to select models';
         elements.modelStatus.style.color = '#8e8ea0';
+        
         // Reset to server default model
-        elements.modelSelector.innerHTML = '';
-        const defaultOption = document.createElement('option');
-        defaultOption.value = DEFAULT_SERVER_MODEL;
-        defaultOption.textContent = DEFAULT_SERVER_MODEL_NAME;
-        elements.modelSelector.appendChild(defaultOption);
+        elements.modelOptionsList.innerHTML = '';
+        selectModel(DEFAULT_SERVER_MODEL, DEFAULT_SERVER_MODEL_NAME);
         state.customModel = null;
     }
 }
@@ -108,8 +152,8 @@ async function loadModels() {
     const data = await getChutesModels();
     console.log('Models response:', data);
     
-    // Clear the model selector
-    elements.modelSelector.innerHTML = '';
+    // Clear the model selector options
+    elements.modelOptionsList.innerHTML = '';
     
     if (data.models && data.models.length > 0) {
         console.log('Found', data.models.length, 'models');
@@ -122,31 +166,53 @@ async function loadModels() {
         });
         
         sortedModels.forEach(model => {
-            const option = document.createElement('option');
-            option.value = model.id;
-            // Add PAID indicator for paid models with special unicode bullet
-            option.textContent = model.free ? model.name : `${model.name}  ●  PAID`;
-            option.dataset.paid = !model.free;
-            elements.modelSelector.appendChild(option);
+            const optionDiv = document.createElement('div');
+            optionDiv.className = 'model-option';
+            optionDiv.dataset.value = model.id;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'model-item-content';
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'model-name-text';
+            nameSpan.textContent = model.name;
+            
+            contentDiv.appendChild(nameSpan);
+
+            if (!model.free) {
+                const badgeSpan = document.createElement('span');
+                badgeSpan.className = 'model-badge badge-paid';
+                badgeSpan.textContent = 'PAID';
+                contentDiv.appendChild(badgeSpan);
+            }
+            
+            optionDiv.appendChild(contentDiv);
+            
+            optionDiv.addEventListener('click', () => {
+                selectModel(model.id, model.name);
+            });
+            
+            elements.modelOptionsList.appendChild(optionDiv);
         });
         
         // Auto-select first model (which should be free since we sorted)
         const firstFreeModel = sortedModels.find(m => m.free);
         if (firstFreeModel) {
-            elements.modelSelector.value = firstFreeModel.id;
-            state.customModel = firstFreeModel.id;
+            selectModel(firstFreeModel.id, firstFreeModel.name);
         } else if (sortedModels.length > 0) {
-            elements.modelSelector.value = sortedModels[0].id;
-            state.customModel = sortedModels[0].id;
+            selectModel(sortedModels[0].id, sortedModels[0].name);
         }
     } else {
         console.log('No models found in response');
         // Fallback option if no models loaded
-        const fallbackOption = document.createElement('option');
-        fallbackOption.value = 'openai/gpt-oss-20b';
-        fallbackOption.textContent = 'GPT-OSS 20B';
-        elements.modelSelector.appendChild(fallbackOption);
-        state.customModel = 'openai/gpt-oss-20b';
+        const fallbackDiv = document.createElement('div');
+        fallbackDiv.className = 'model-option';
+        fallbackDiv.dataset.value = 'openai/gpt-oss-20b';
+        fallbackDiv.textContent = 'GPT-OSS 20B';
+        fallbackDiv.addEventListener('click', () => selectModel('openai/gpt-oss-20b', 'GPT-OSS 20B'));
+        elements.modelOptionsList.appendChild(fallbackDiv);
+        
+        selectModel('openai/gpt-oss-20b', 'GPT-OSS 20B');
     }
 }
 
