@@ -10,16 +10,18 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['ANONYMIZED_TELEMETRY'] = 'False'
 
 import sys
-import json
+import os
 import time
 import logging
 from datetime import datetime
+import uuid
 from typing import Dict, Any
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response, stream_with_context
 from flask_cors import CORS
 from werkzeug.exceptions import TooManyRequests
 
 from src.server.config import get_config
+from werkzeug.utils import secure_filename
 from src.server.ollama_proxy import OllamaProxy
 from src.server.tunnel import TunnelManager
 from src.core.query_processor import QueryProcessor
@@ -398,6 +400,56 @@ def api_tunnel():
 def serve_image(filepath):
     """Serve images from the data/images directory"""
     return send_from_directory(Config.IMAGES_PATH, filepath)
+
+
+@app.route('/api/upload/pdf', methods=['POST'])
+def upload_pdf():
+    """Upload a PDF to a user-scoped uploads directory"""
+    # Check API key if required
+    auth_error = require_api_key()
+    if auth_error:
+        return auth_error
+
+    user_id = request.headers.get('X-User-Id')
+    if not user_id:
+        return jsonify({"error": "User ID is required"}), 400
+
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part in request"}), 400
+
+    file = request.files['file']
+    if not file or file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    filename = secure_filename(file.filename)
+    if not filename.lower().endswith('.pdf'):
+        return jsonify({"error": "Only PDF uploads are allowed"}), 400
+
+    mimetype = file.mimetype or file.content_type
+    if mimetype not in (None, 'application/pdf', 'application/octet-stream'):
+        return jsonify({"error": "Only PDF uploads are allowed"}), 400
+
+    # Build user-specific path: /users/{user_id}/uploads
+    uploads_root = Config.UPLOADS_BASE_PATH
+    user_upload_dir = os.path.join(uploads_root, user_id, 'uploads')
+    os.makedirs(user_upload_dir, exist_ok=True)
+
+    unique_name = f"{int(time.time())}_{uuid.uuid4().hex}.pdf"
+    save_path = os.path.join(user_upload_dir, unique_name)
+
+    try:
+        file.save(save_path)
+        logger.info(f"Stored upload for user {user_id} at {save_path}")
+    except Exception as e:
+        logger.error(f"Failed to save upload for user {user_id}: {e}")
+        return jsonify({"error": "Failed to save file"}), 500
+
+    return jsonify({
+        "success": True,
+        "file": unique_name,
+        "path": save_path,
+        "web_path": f"/users/{user_id}/uploads/{unique_name}"
+    }), 201
 
 @app.route('/api/suggestions', methods=['POST'])
 def api_suggestions():

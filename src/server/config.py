@@ -7,11 +7,15 @@ import os
 from typing import Dict, Any, List
 from dotenv import load_dotenv
 
+# Resolve backend root for path defaults
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+
 # Load environment variables from .env file
 load_dotenv()
 
 class Config:
     """Base configuration class"""
+    BASE_DIR = BASE_DIR
     
     # Server settings
     ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
@@ -36,6 +40,7 @@ class Config:
     # Database settings
     CHROMA_PATH = os.getenv('CHROMA_PATH', 'db')
     IMAGES_PATH = os.getenv('IMAGES_PATH', 'data/images')
+    UPLOADS_BASE_PATH = os.getenv('UPLOADS_BASE_PATH', os.path.join(BASE_DIR, 'users'))
     
     # Security settings
     API_KEY_REQUIRED = os.getenv('API_KEY_REQUIRED', 'false').lower() == 'true'
@@ -89,7 +94,8 @@ class Config:
             },
             'database': {
                 'chroma_path': cls.CHROMA_PATH,
-                'images_path': cls.IMAGES_PATH
+                'images_path': cls.IMAGES_PATH,
+                'uploads_base_path': cls.UPLOADS_BASE_PATH
             },
             'security': {
                 'api_key_required': cls.API_KEY_REQUIRED,

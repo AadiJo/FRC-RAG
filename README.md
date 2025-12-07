@@ -96,9 +96,11 @@ The API will be available at `http://localhost:5000`
 - `GET /health` - Comprehensive health check
 - `GET /api/stats` - Server statistics
 
+
 ### Utility Endpoints
 - `POST /api/feedback` - Submit user feedback
 - `GET /images/<path>` - Serve images
+- `POST /api/upload/pdf` - Upload a PDF file
 
 ## Configuration
 
